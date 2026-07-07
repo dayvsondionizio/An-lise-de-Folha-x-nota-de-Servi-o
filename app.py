@@ -262,8 +262,34 @@ if "analise" not in st.session_state:
 if "upkey" not in st.session_state:
     st.session_state.upkey = 0
 
-mostrar_cpf = True   # CPF sempre visível (controle removido)
-empresa = ""         # será preenchido pelo PGDAS quando disponível
+empresa = ""  # será preenchido pelo PGDAS quando disponível
+
+# ── BARRA DE CONTROLE SUPERIOR ────────────────────────────────────────────────
+_tb_left, _tb_mid, _tb_right = st.columns([3, 1, 1])
+with _tb_left:
+    empresa = st.text_input("Nome do cliente / empresa",
+                            placeholder="Ex.: Padaria São João Ltda",
+                            label_visibility="collapsed",
+                            key="empresa_input")
+with _tb_mid:
+    mostrar_cpf = st.checkbox("🔓 CPF completo", value=True,
+                              help="Desmarque para mascarar CPF ao compartilhar a tela (LGPD).")
+with _tb_right:
+    if st.button("🔄 Recomeçar", use_container_width=True):
+        _keep = st.session_state.get("upkey", 0) + 1
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.session_state.analise = None
+        st.session_state.upkey = _keep
+        st.rerun()
+
+# botão Início só aparece quando já está em um modo
+if st.session_state.get("analise") is not None and st.session_state.get("modo"):
+    if st.button("🏠 Início", use_container_width=True):
+        st.session_state.modo = None
+        st.rerun()
+
+st.divider()
 
 D = st.session_state.analise
 
