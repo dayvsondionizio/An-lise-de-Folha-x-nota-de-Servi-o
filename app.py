@@ -19,6 +19,38 @@ st.markdown("""
 html, body, [class*="css"] { font-family:'Segoe UI','Inter',-apple-system,sans-serif; }
 .block-container { padding-top:1.6rem; max-width:1480px; }
 
+/* ── PASSOS DO SIMULADOR ── */
+.sim-step { display:flex; align-items:flex-start; gap:14px; margin:18px 0 6px; }
+.sim-step-num { min-width:32px; height:32px; border-radius:50%;
+  background:linear-gradient(135deg,#16304f,#2e6da4); color:#fff;
+  font-weight:800; font-size:14px; display:flex; align-items:center;
+  justify-content:center; flex-shrink:0; box-shadow:0 2px 8px rgba(22,48,79,.25); }
+.sim-step-body { flex:1; }
+.sim-step-title { font-size:13px; font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; opacity:.65; margin:0 0 2px; }
+.sim-step-desc { font-size:13px; margin:0; opacity:.8; }
+
+/* ── RESULTADO DESTAQUE ── */
+.nota-destaque { border-radius:16px; padding:28px 32px; margin:20px 0 12px;
+  background:linear-gradient(135deg,#0f2540 0%,#1a4a7a 100%);
+  box-shadow:0 8px 32px rgba(15,37,64,.35); text-align:center; }
+.nota-destaque .label { font-size:11px; font-weight:700; letter-spacing:.12em;
+  text-transform:uppercase; color:rgba(255,255,255,.6); margin-bottom:8px; }
+.nota-destaque .valor { font-size:44px; font-weight:900; color:#fff;
+  letter-spacing:-.02em; line-height:1; margin-bottom:6px; }
+.nota-destaque .sub { font-size:13px; color:rgba(255,255,255,.65); }
+
+/* ── CARD MANUAL ── */
+.card-manual { border-radius:12px; padding:16px 20px; margin:10px 0; }
+@media (prefers-color-scheme: light) {
+  .card-manual { background:#fffbf0; border:1.5px dashed #d4ac0d; }
+  .sim-step-title { color:#16304f; }
+}
+@media (prefers-color-scheme: dark) {
+  .card-manual { background:#2a2310; border:1.5px dashed #d4ac0d; }
+  .sim-step-title { color:#a8c4e0; }
+}
+
 /* ── LIGHT ── */
 @media (prefers-color-scheme: light) {
   .stApp { background:#f5f7fa; }
@@ -352,70 +384,81 @@ def _mes_anterior(p):
         return None
 
 def render_simulador(meses, fgtsdf):
-    st.divider()
-    st.markdown("#### 🎯 Simulador — Quanto de nota emitir (planejar ANTES do PGDAS)")
-    st.caption("Para a empresa de mão de obra (Simples) que emite nota de serviço à empresa "
-               "principal. Escolha o mês, anexe o PGDAS do mês ANTERIOR (para a alíquota) e o "
-               "app calcula a nota a emitir — e quanto dela vira DAS e CPP.")
+    def _step(n, title, desc=""):
+        _d = f"<br><span style='font-size:12px;opacity:.75'>{desc}</span>" if desc else ""
+        st.markdown(
+            f"<p style='display:flex;align-items:center;gap:12px;margin:20px 0 4px;padding:0'>"
+            f"<span style='min-width:30px;height:30px;border-radius:50%;"
+            f"background:linear-gradient(135deg,#16304f,#2e6da4);color:#fff;"
+            f"font-weight:800;font-size:13px;display:inline-flex;align-items:center;"
+            f"justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(22,48,79,.25)'>{n}</span>"
+            f"<span><strong style='font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.6'>"
+            f"{title}</strong>{_d}</span></p>",
+            unsafe_allow_html=True)
 
-    # ── 1) MÊS DA SIMULAÇÃO ──────────────────────────────────────────────────
+    # ── PASSO 1 — MÊS ─────────────────────────────────────────────────────────
+    _step(1, "Qual mês você está simulando?")
     _sem_xml_meses = not meses
     if _sem_xml_meses:
-        st.markdown("<div class='al-y'>⚠️ Nenhum mês completo no XML. Digite o mês manualmente e informe salários e FGTS abaixo.</div>",
-                    unsafe_allow_html=True)
         import datetime
         _hoje = datetime.date.today()
-        _mes_txt = st.text_input("📅 Competência (AAAA-MM)", value=f"{_hoje.year}-{_hoje.month-1:02d}",
-                                 placeholder="Ex.: 2026-06", key="sim_mes_manual")
+        _mes_txt = st.text_input("Competência (AAAA-MM)",
+                                 value=f"{_hoje.year}-{_hoje.month-1:02d}",
+                                 placeholder="Ex.: 2026-06", key="sim_mes_manual",
+                                 help="Formato: ANO-MÊS. Ex.: 2026-06 para junho/2026")
         mes = _mes_txt.strip() if re.match(r"^\d{4}-\d{2}$", _mes_txt.strip()) else None
         if not mes:
             st.info("Informe a competência no formato AAAA-MM (ex.: 2026-06).")
             return
     else:
-        mes = st.selectbox("📅 Mês da simulação", meses, index=len(meses)-1,
+        mes = st.selectbox("Competência", meses, index=len(meses)-1,
                            format_func=lambda p: fper(p, True), key="sim_mes")
-    gg = fgtsdf[fgtsdf["per_apur"] == mes] if (not fgtsdf.empty and not _sem_xml_meses) else (fgtsdf.iloc[0:0] if not fgtsdf.empty else fgtsdf)
+
+    # ── PASSO 2 — FOLHA (XML ou manual) ───────────────────────────────────────
+    gg = fgtsdf[fgtsdf["per_apur"] == mes] if (not fgtsdf.empty and not _sem_xml_meses) else pd.DataFrame()
     sal_xml = gg["base_fgts"].sum() if not gg.empty else 0
     fg_xml = gg["deposito_fgts"].sum() if not gg.empty else 0
     _tem_xml = (not _sem_xml_meses) and (sal_xml > 0 or fg_xml > 0)
 
-    if _tem_xml:
-        st.markdown(f"<div class='al-g'>✅ Folha de <b>{fper(mes, True)}</b> encontrada no XML: "
-                    f"salários <b>{brl(sal_xml)}</b> + FGTS <b>{brl(fg_xml)}</b>.</div>", unsafe_allow_html=True)
-    elif not _sem_xml_meses:
-        st.markdown(f"<div class='al-r'>⚠️ Não há folha (S-5003) para <b>{fper(mes, True)}</b> no XML. "
-                    "Informe os valores manualmente abaixo para simular mesmo assim.</div>",
-                    unsafe_allow_html=True)
+    _step(2, "Valores da folha",
+          "Do XML (automático) ou digitado em caso de emergência.")
 
-    _usar_manual = _sem_xml_meses or st.checkbox(
-        "✏️ Informar valores manualmente (emergência — XML ainda não disponível)",
-        value=not _tem_xml, key=f"sim_manual_{mes}")
+    if _tem_xml:
+        st.markdown(f"<div class='al-g'>✅ XML encontrado — <b>Salários {brl(sal_xml)}</b> · "
+                    f"<b>FGTS {brl(fg_xml)}</b></div>", unsafe_allow_html=True)
+        _usar_manual = st.checkbox("✏️ Substituir pelos valores digitados manualmente",
+                                   value=False, key=f"sim_manual_{mes}")
+    else:
+        if not _sem_xml_meses:
+            st.markdown(f"<div class='al-r'>⚠️ Sem folha (S-5003) no XML para {fper(mes, True)}.</div>",
+                        unsafe_allow_html=True)
+        _usar_manual = True
+
     if _usar_manual:
+        st.markdown("<div class='card-manual'>", unsafe_allow_html=True)
         _mc1, _mc2 = st.columns(2)
-        _sal_txt = _mc1.text_input("Salários — base FGTS (R$)",
-                                   value="" if not _tem_xml else "",
-                                   placeholder="Ex.: 175.000,00", key=f"sim_sal_{mes}")
-        _fg_txt = _mc2.text_input("FGTS (R$)",
-                                  value="" if not _tem_xml else "",
-                                  placeholder="Ex.: 13.846,00", key=f"sim_fg_{mes}")
+        _sal_txt = _mc1.text_input("Salários — base FGTS (R$)", placeholder="Ex.: 175.000,00",
+                                   key=f"sim_sal_{mes}",
+                                   help="Total da folha que serve de base para o FGTS (S-5003)")
+        _fg_txt = _mc2.text_input("FGTS (R$)", placeholder="Ex.: 13.846,00",
+                                  key=f"sim_fg_{mes}", help="8% sobre os salários")
+        st.markdown("</div>", unsafe_allow_html=True)
         sal = parse_brl_in(_sal_txt)
         fg = parse_brl_in(_fg_txt)
         _obs_sal = "digitado manualmente"
         _obs_fg = "digitado manualmente"
         if sal <= 0 and fg <= 0:
-            st.info("Digite os salários e FGTS acima para calcular.")
+            st.info("⬆️ Digite os valores acima para ver o resultado.")
             return
     else:
-        if not _tem_xml:
-            return
         sal, fg = sal_xml, fg_xml
-        _obs_sal = "do XML (S-5003)"
-        _obs_fg = "do XML (S-5003)"
+        _obs_sal = "XML (S-5003)"
+        _obs_fg = "XML (S-5003)"
 
-    # ── 2) PGDAS DO MÊS ANTERIOR (alíquota + anexo + fatia da CPP) ────────────
+    # ── PASSO 3 — PGDAS ANTERIOR (alíquota) ───────────────────────────────────
     _ant = _mes_anterior(mes)
-    st.markdown(f"📎 **Anexe o PGDAS de {fper(_ant, True) if _ant else 'um mês anterior'}** "
-                "(o mês anterior ao da simulação) para detectar a alíquota efetiva e o Anexo:")
+    _step(3, f"PGDAS de {fper(_ant, True) if _ant else 'mês anterior'} (opcional)",
+          "Anexe o PDF para preencher a alíquota automaticamente.")
     _pg_ant = st.file_uploader("PGDAS anterior (PDF)", type=["pdf"],
                                accept_multiple_files=False, key="pgdas_sim",
                                label_visibility="collapsed")
@@ -431,126 +474,86 @@ def render_simulador(meses, fgtsdf):
             if _r.get("das_total"):
                 st.session_state["sim_cpp_share"] = (_r.get("cpp") or 0) / _r["das_total"]
             if _r.get("cpp_ratio"):
-                st.session_state["cpp_ratio_ref"] = _r["cpp_ratio"]   # p/ estimar CPP de meses sem PGDAS
+                st.session_state["cpp_ratio_ref"] = _r["cpp_ratio"]
             if _r.get("segmentos"):
-                st.session_state["sim_segmentos"] = _r["segmentos"]   # mix p/ distribuir a nota
+                st.session_state["sim_segmentos"] = _r["segmentos"]
             if _r.get("rbt12"):
-                st.session_state["sim_rbt12"] = _r["rbt12"]           # p/ cálculo oficial do CPP
+                st.session_state["sim_rbt12"] = _r["rbt12"]
             if _r.get("nome"):
-                st.session_state["empresa_pgdas"] = _r["nome"]        # razão social p/ relatório
-            _av = "" if _r.get("competencia") == _ant else " <b>(atenção: não é o mês anterior)</b>"
+                st.session_state["empresa_pgdas"] = _r["nome"]
+            _av = "" if _r.get("competencia") == _ant else " · <b>atenção: não é o mês anterior</b>"
             st.markdown(
-                (f"<div class='al-g'>✅ PGDAS lido: <b>Anexo {_r.get('anexo') or '?'}</b> · "
-                 f"alíquota efetiva <b>{_r['aliq_efetiva']:.2f}%</b> · CPP é "
-                 f"<b>{(_r.get('cpp') or 0)/_r['das_total']*100:.0f}%</b> do DAS "
-                 f"(ref. {fper(_r['competencia'], True) if _r.get('competencia') else '—'}{_av}).</div>"
-                 ).replace(".", ",", 1), unsafe_allow_html=True)
+                (f"<div class='al-g'>✅ PGDAS lido — Anexo <b>{_r.get('anexo') or '?'}</b> · "
+                 f"alíquota <b>{_r['aliq_efetiva']:.2f}%</b> · CPP = "
+                 f"<b>{(_r.get('cpp') or 0)/_r['das_total']*100:.0f}%</b> do DAS"
+                 f"{_av}</div>").replace(".", ",", 1), unsafe_allow_html=True)
         else:
             st.warning("Não consegui ler a alíquota nesse PDF. Informe manualmente abaixo.")
 
     _aliq_auto = st.session_state.get("sim_aliq")
     _anexo_det = st.session_state.get("sim_anexo", "")
     _cpp_share = st.session_state.get("sim_cpp_share")
-    if _aliq_auto:
-        st.markdown(
-            (f"<div class='al-b'>📌 <b>Sobre a alíquota ({_aliq_auto:.2f}%):</b> ").replace(".", ",") +
-            "vem do PGDAS do <b>mês anterior</b> (DAS ÷ receita) — a do mês simulado só sai no PGDAS "
-            "dele, que ainda não existe. O RBT12 muda pouco de um mês para o outro, então é uma boa "
-            "referência: <b>faturamento estável</b> → praticamente igual; <b>crescendo</b> → a real "
-            "será um pouco maior, então suba a alíquota no campo abaixo.</div>",
-            unsafe_allow_html=True)
-    if _anexo_det:
-        st.caption(f"Anexo detectado: **Anexo {_anexo_det}**")
 
-    # ── 3) PARÂMETROS ────────────────────────────────────────────────────────
+    # ── PASSO 4 — PARÂMETROS ──────────────────────────────────────────────────
+    _step(4, "Parâmetros do cálculo")
     sc1, sc2, sc3 = st.columns(3)
-    aliq = sc1.number_input("Alíquota efetiva DAS (%)", min_value=0.0, max_value=30.0,
+    aliq = sc1.number_input("Alíquota DAS (%)", min_value=0.0, max_value=30.0,
         value=round(_aliq_auto, 2) if _aliq_auto else 11.0, step=0.1,
-        help="% do DAS sobre a nota. Vem do PGDAS anterior; muda mês a mês pelo RBT12.")
-    margem = sc2.number_input("Margem de segurança (%)", min_value=0.0, max_value=50.0,
-        value=10.0, step=1.0, help="Folga p/ lucro e imprevistos — evita faturar 'no osso'.")
-    _desp_txt = sc3.text_input("Despesas gerais (R$/mês)", value="",
-        help="Aluguel, contador, água/luz, material. Deixa a estrutura coerente p/ o Fisco. Ex.: 8000")
+        help=("Vem do PGDAS anterior automaticamente. "
+              "Se o faturamento cresceu, suba um pouco — o RBT12 maior eleva a alíquota."))
+    margem = sc2.number_input("Margem (%)", min_value=0.0, max_value=50.0,
+        value=10.0, step=1.0,
+        help="Folga para lucro e imprevistos. Evita faturar 'no osso'.")
+    _desp_txt = sc3.text_input("Despesas gerais (R$)", value="",
+        placeholder="Ex.: 8.000,00",
+        help="Aluguel, contador, água, luz. Mantém a estrutura coerente para o Fisco.")
     desp_ger = parse_brl_in(_desp_txt)
+    if _aliq_auto:
+        st.caption(f"Alíquota do PGDAS anterior: **{str(_aliq_auto).replace('.',',')}%** · "
+                   f"Anexo **{_anexo_det}**" if _anexo_det else
+                   f"Alíquota do PGDAS anterior: **{str(_aliq_auto).replace('.',',')}%**")
 
     _div = 1 - aliq/100 - margem/100
     if _div <= 0:
         st.warning("Alíquota + margem somam 100% ou mais — ajuste os valores.")
         return
 
-    # ── 4) CÁLCULO DO MÊS ─────────────────────────────────────────────────────
-    custo_fora = sal + fg + desp_ger               # cobertos FORA do DAS
-    nota = custo_fora / _div                        # nota a emitir
-    das_est = nota * aliq/100                        # DAS que a nota gera
-    cpp_est = das_est * _cpp_share if _cpp_share else None   # CPP dentro do DAS
-    sobra = nota - custo_fora - das_est              # margem em R$
-
-    st.markdown(f"##### 📋 Resultado para {fper(mes, True)}")
-    st.caption("A nota a emitir é a SOMA de três partes: o custo a cobrir + o DAS que a nota gera "
-               "+ a margem. A CPP NÃO é uma quarta parte — ela já está dentro do DAS.")
-    _das_obs = (f"{aliq:.1f}% da nota · inclui a CPP".replace(".", ",") +
-                (f" (~{brl(cpp_est)})" if cpp_est is not None else ""))
-    linhas = [
-        {"Item": "Salários (base FGTS)", "Valor": sal, "Observação": _obs_sal},
-        {"Item": "FGTS (8%)", "Valor": fg, "Observação": _obs_fg},
-    ]
-    if desp_ger > 0:
-        linhas.append({"Item": "Despesas gerais", "Valor": desp_ger, "Observação": "informado por você"})
-    linhas += [
-        {"Item": "(=) Custo a cobrir", "Valor": custo_fora, "Observação": "salários + FGTS + despesas"},
-        {"Item": "(+) DAS sobre a nota", "Valor": das_est, "Observação": _das_obs},
-        {"Item": "(+) Margem", "Valor": sobra, "Observação": f"{margem:.1f}% da nota".replace(".", ",")},
-        {"Item": "(=) NOTA A EMITIR", "Valor": nota, "Observação": "lançar no PGDAS"},
-    ]
-    st.dataframe(fmt_df(pd.DataFrame(linhas), money=["Valor"]),
-                 use_container_width=True, hide_index=True)
-    st.markdown(
-        (f"<div class='al-g'>🧮 <b>Conta fechando:</b> {brl(custo_fora)} (custo) + {brl(das_est)} "
-         f"(DAS) + {brl(sobra)} (margem) = <b>{brl(nota)}</b> (nota). " +
-         (f"A CPP de ~<b>{brl(cpp_est)}</b> já está <b>dentro</b> dos {brl(das_est)} do DAS — "
-          "por isso não é somada à parte." if cpp_est is not None else
-          "A CPP está dentro do DAS — anexe o PGDAS anterior para ver o valor dela.") +
-         "</div>"), unsafe_allow_html=True)
-
-    kk = st.columns(3)
-    kpi(kk[0], brl(nota), "NOTA A EMITIR", f"lançar no PGDAS de {fper(mes, True)}", "n")
-    kpi(kk[1], brl(das_est), "DAS estimado", f"{aliq:.1f}% da nota".replace(".", ","), "n")
-    kpi(kk[2], brl(cpp_est) if cpp_est is not None else "—", "CPP (dentro do DAS)",
-        "anexe o PGDAS p/ ver" if cpp_est is None else "já incluída no DAS", "n")
-
-    # CPP a gravar ao confirmar (padrão: a fatia de CPP do DAS da nota)
-    _cpp_confirmar = cpp_est
-    # ── DISTRIBUIÇÃO DA NOTA POR TIPO DE RECEITA (edite os VALORES em R$) ─────
+    # ── CÁLCULO BASE ──────────────────────────────────────────────────────────
+    import simples as _sn
+    custo_fora = sal + fg + desp_ger
+    nota = custo_fora / _div
+    sobra = nota * (margem/100)
     _seg = st.session_state.get("sim_segmentos")
+    _rbt12 = st.session_state.get("sim_rbt12")
+    _store = "sim_dist_vals"
+
+    # ── DISTRIBUIÇÃO PRIMEIRO (roda o editor, atualiza session_state) ─────────
+    _das_resumo = nota * aliq/100
+    _cpp_resumo = _das_resumo * _cpp_share if _cpp_share else None
+    _tem_iv = False
+
     if _seg:
-        import simples as _sn
-        _rbt12 = st.session_state.get("sim_rbt12")
-        _tot_ref = sum(v["receita"] for v in _seg.values()) or 1
         _cats = list(_seg.keys())
-        st.markdown(f"##### 🧾 Como distribuir a nota de {brl(nota)} no PGDAS")
-        st.caption("Edite quanto colocar em cada tipo de receita — os três são livres. O painel "
-                   "mostra em tempo real quanto FALTA (ou sobrou) para fechar na nota, então você "
-                   "distribui sem calculadora. O CPP de cada parte usa a fórmula oficial do Simples "
-                   "(alíquota efetiva pelo RBT12 × repartição do anexo).")
-        _store = "sim_dist_vals"
-        st.session_state.setdefault(_store, {})
+        _tot_ref = sum(v["receita"] for v in _seg.values()) or 1
         _seed_now = {c: round(nota * _seg[c]["receita"]/_tot_ref, 2) for c in _cats}
+        st.session_state.setdefault(_store, {})
         if (not st.session_state[_store]) or set(st.session_state[_store]) != set(_cats):
             st.session_state[_store] = dict(_seed_now)
+
+        st.markdown(f"##### 🧾 Distribuição da nota de {brl(nota)} no PGDAS")
+        st.markdown(
+            "<div class='al-b'>📋 <b>Esses valores são o que você vai digitar no PGDAS</b> da Receita Federal. "
+            "Serviços (Anexo III) geram CPP maior (~43%) que Revenda (Anexo I, ~41%). "
+            "O resultado abaixo atualiza conforme você edita.</div>", unsafe_allow_html=True)
         if st.button("🔄 Redistribuir pelo mix do PGDAS", key="sim_dist_reset"):
             st.session_state[_store] = dict(_seed_now)
             st.session_state["sim_dist_ed_ver"] = st.session_state.get("sim_dist_ed_ver", 0) + 1
             st.rerun()
-        st.markdown("<div class='al-b'>✏️ <b>Clique em qualquer valor da coluna azul para editar</b> "
-                    "e digite quanto quer lançar naquele tipo de receita. Os três são livres — "
-                    "acompanhe o card <b>“Falta distribuir”</b> abaixo até zerar.</div>",
-                    unsafe_allow_html=True)
         editor_faturamento(_cats, "sim_dist_ed", store=_store,
                            coluna="✏️ Valor a lançar (R$) — clique p/ editar",
                            label_col="Tipo de receita", label_fn=lambda c: c)
         _tot_val = sum(float(st.session_state[_store].get(c, 0) or 0) for c in _cats)
-        _dif = round(nota - _tot_val, 2)   # >0 falta ; <0 passou
-        # painel de saldo em tempo real (sem calculadora)
+        _dif = round(nota - _tot_val, 2)
         sk = st.columns(3)
         kpi(sk[0], brl(nota), "Nota alvo")
         kpi(sk[1], brl(_tot_val), "Distribuído")
@@ -560,32 +563,32 @@ def render_simulador(meses, fgtsdf):
             kpi(sk[2], brl(_dif), "Falta distribuir", "coloque em alguma parte", "n")
         else:
             kpi(sk[2], brl(-_dif), "Passou da nota", "reduza em alguma parte", "down")
-        # tabela final com CPP por parte (fórmula oficial)
-        drows = []
-        _tot_cpp = 0.0; _tem_iv = False
+
+        # tabela com CPP por tipo — calcula os totais reais aqui
+        drows = []; _das_resumo = 0.0; _cpp_resumo = 0.0
         for c in _cats:
             val = float(st.session_state[_store].get(c, 0) or 0)
             anexo = _seg[c].get("anexo") or _sn.anexo_de_categoria(c)
-            if anexo == "IV":
-                _tem_iv = True
+            if anexo == "IV": _tem_iv = True
+            ae_r = _sn.aliquota_efetiva(_rbt12, anexo) if _rbt12 else None
+            das_c = val * ae_r[0] if ae_r else val * (aliq/100)
             cpp_c = _sn.cpp(val, _rbt12, anexo) if _rbt12 else \
                     (val * (_seg[c]["cpp"]/_seg[c]["receita"]) if _seg[c]["receita"] else 0)
-            _tot_cpp += (cpp_c or 0)
+            _das_resumo += das_c
+            _cpp_resumo += (cpp_c or 0)
             drows.append({"Tipo de receita": c, "Anexo": anexo,
                           "Valor a lançar": val, "CPP gerado": cpp_c or 0})
         drows.append({"Tipo de receita": "TOTAL", "Anexo": "",
-                      "Valor a lançar": _tot_val, "CPP gerado": _tot_cpp})
+                      "Valor a lançar": _tot_val, "CPP gerado": _cpp_resumo})
         st.dataframe(fmt_df(pd.DataFrame(drows), money=["Valor a lançar", "CPP gerado"]),
                      use_container_width=True, hide_index=True)
         if abs(_dif) > 0.5:
             st.markdown((f"<div class='al-y'>⚠️ Ainda não fecha: "
-                         f"{'faltam' if _dif>0 else 'passou em'} <b>{brl(abs(_dif))}</b> "
-                         f"em relação à nota ({brl(nota)}). Ajuste as partes até 'Falta distribuir' "
-                         "ficar em R$ 0,00.</div>"), unsafe_allow_html=True)
+                         f"{'faltam' if _dif>0 else 'passou em'} <b>{brl(abs(_dif))}</b>. "
+                         "Ajuste até 'Falta distribuir' zerar.</div>"), unsafe_allow_html=True)
         else:
             st.markdown(f"<div class='al-g'>✅ Fecha na nota (<b>{brl(_tot_val)}</b>) · "
-                        f"CPP total <b>{brl(_tot_cpp)}</b>.</div>", unsafe_allow_html=True)
-        _cpp_confirmar = _tot_cpp   # CPP exato pela distribuição (fórmula oficial)
+                        f"CPP total <b>{brl(_cpp_resumo)}</b>.</div>", unsafe_allow_html=True)
         if _tem_iv:
             st.markdown(
                 "<div class='al-r'>⚠️ <b>Há receita no Anexo IV</b> (ex.: construção, limpeza, "
@@ -595,32 +598,52 @@ def render_simulador(meses, fgtsdf):
                 "<b>anular a vantagem</b> da estrutura de mão de obra no Simples.</div>",
                 unsafe_allow_html=True)
 
-    # ── CONFIRMAR: grava faturamento + CPP (estimado) do mês na Análise ───────
+    # ── RESUMO FINAL (depois da distribuição — valores sempre atualizados) ─────
     st.divider()
-    cf1, cf2 = st.columns([2, 3])
-    if cf1.button(f"✅ Confirmar simulação de {fper(mes, True)}", key="sim_confirma",
-                  type="primary", use_container_width=True):
+    # garante que DAS nunca fica zero: fallback na alíquota manual se a distribuição zerou
+    if not _das_resumo:
+        _das_resumo = nota * aliq/100
+    if not _cpp_resumo and _cpp_share:
+        _cpp_resumo = _das_resumo * _cpp_share
+    _fonte = "pela distribuição" if _seg else f"estimado ({aliq:.1f}% da nota)".replace(".",",")
+    _das_label = brl(_das_resumo)
+
+    st.markdown(f"""<div class='nota-destaque'>
+      <div class='label'>Nota a emitir — {fper(mes, True)}</div>
+      <div class='valor'>{brl(nota)}</div>
+      <div class='sub'>DAS {_fonte}: {_das_label}
+        {f" · CPP (dentro do DAS): {brl(_cpp_resumo)}" if _cpp_resumo else " · Anexe o PGDAS p/ ver a CPP"}
+      </div></div>""", unsafe_allow_html=True)
+
+    kk = st.columns(3)
+    kpi(kk[0], brl(nota),    "NOTA A EMITIR", f"lançar no PGDAS de {fper(mes, True)}", "n")
+    kpi(kk[1], _das_label,   "DAS estimado",  _fonte, "n")
+    kpi(kk[2], brl(_cpp_resumo) if _cpp_resumo else "—", "CPP (dentro do DAS)",
+        "anexe o PGDAS p/ ver" if not _cpp_resumo else "ja incluida no DAS", "n")
+
+    # ── CONFIRMAR ─────────────────────────────────────────────────────────────
+    _cpp_confirmar = _cpp_resumo
+    st.markdown(f"**Gostou do resultado?** Confirme para salvar a nota de **{brl(nota)}** "
+                f"como faturamento de {fper(mes, True)} na Análise de Folha.")
+    if st.button(f"✅ Confirmar e salvar {fper(mes, True)}", key="sim_confirma",
+                 type="primary", use_container_width=True):
         st.session_state.setdefault("fat_por_comp", {})[mes] = round(nota, 2)
         st.session_state.setdefault("cpp_estimado_set", set())
         if _cpp_confirmar is not None:
             st.session_state.setdefault("cpp_por_comp", {})[mes] = round(_cpp_confirmar, 2)
             st.session_state["cpp_estimado_set"].add(mes)
-        st.success(f"{fper(mes, True)}: faturamento {brl(nota)}" +
-                   (f" + CPP (estimado) {brl(_cpp_confirmar)}" if _cpp_confirmar else "") +
-                   " salvos — já entram no Custo Total da Análise de Folha. Quando você anexar o "
-                   "PGDAS real deste mês, ele substitui o CPP estimado.")
-    cf2.caption("Grava a nota como faturamento e o CPP estimado da simulação neste mês. "
-                "O CPP entra no custo marcado como estimado; o PGDAS real do mês (quando anexado) "
-                "assume o lugar.")
+        st.success(
+            f"✅ **{fper(mes, True)} salvo** — nota {brl(nota)}" +
+            (f" · CPP estimado {brl(_cpp_confirmar)}" if _cpp_confirmar else "") +
+            ". O PGDAS real deste mês (quando anexado) substitui o CPP estimado.")
 
     # ── 5) COMO FICA A CPP (a dúvida do analista) ─────────────────────────────
-    if cpp_est is not None:
+    if _cpp_resumo:
         st.markdown(
             f"<div class='al-b'>🔎 <b>E a CPP, que não veio no XML?</b> Ela é paga <b>dentro do DAS</b> "
-            f"desta nota. Emitindo <b>{brl(nota)}</b>, o DAS fica em ~<b>{brl(das_est)}</b>, e a fatia de "
-            f"CPP dele é ~<b>{brl(cpp_est)}</b> — é o INSS patronal do Simples (Anexo III), recolhido via "
-            "DAS, não em guia separada. Por isso a CPP entra na simulação como parte do DAS, e não como "
-            "um custo somado por fora.</div>", unsafe_allow_html=True)
+            f"desta nota. Emitindo <b>{brl(nota)}</b>, o DAS fica em ~<b>{brl(_das_resumo)}</b>, e a fatia de "
+            f"CPP dele é ~<b>{brl(_cpp_resumo)}</b> — é o INSS patronal do Simples, recolhido via "
+            "DAS, não em guia separada.</div>", unsafe_allow_html=True)
     else:
         st.markdown(
             "<div class='al-y'>🔎 <b>E a CPP?</b> No Simples (Anexo III) ela é paga <b>dentro do DAS</b> "
@@ -635,9 +658,9 @@ def render_simulador(meses, fgtsdf):
             min_value=0.0, max_value=40.0, value=27.8, step=0.1,
             help="CPP 20% + RAT/FAP (1–3%) + Terceiros 5,8%. Padrão ~27,8%.")
         _inss_pres = sal * _aliq_pres/100
-        _economia = _inss_pres - das_est
+        _economia = _inss_pres - _das_resumo
         cmp = pd.DataFrame([
-            {"Cenário": "A) Folha no Simples (mão de obra)", "Imposto sobre a folha": das_est,
+            {"Cenário": "A) Folha no Simples (mão de obra)", "Imposto sobre a folha": _das_resumo,
              "Base": "DAS sobre a nota"},
             {"Cenário": "B) Folha no Lucro Presumido", "Imposto sobre a folha": _inss_pres,
              "Base": f"{_aliq_pres:.1f}% da remuneração".replace(".", ",")},
@@ -1683,11 +1706,11 @@ with T[3]:
             if _cpp_per > 0:
                 _est_txt = " (estimado)" if any(cpp_estimado(p) for p in periodos) else ""
                 st.markdown(
-                    f"<div class='al-y'>ℹ️ <b>Sobre o CPP{_est_txt} incluído acima ({brl(_cpp_per)}):</b> "
-                    "ele está somado no “Gasto com Folha + Encargos” para você ter a <b>noção do custo "
-                    "real de pessoal</b>. Mas atenção: no Simples esse CPP <b>já é pago dentro do DAS</b> "
-                    "(imposto sobre o faturamento) — <b>não é um gasto a mais por fora</b>. Ou seja, ao "
-                    "olhar a “sobra para impostos”, lembre que a parte do DAS referente ao CPP já está "
+                    f"<div class='al-y'>&#8505;&#65039; <b>Sobre o CPP{_est_txt} incluido acima ({brl(_cpp_per)}):</b> "
+                    "ele esta somado no &ldquo;Gasto com Folha + Encargos&rdquo; para voce ter a <b>nocao do custo "
+                    "real de pessoal</b>. Mas atencao: no Simples esse CPP <b>ja e pago dentro do DAS</b> "
+                    "(imposto sobre o faturamento) &mdash; <b>nao e um gasto a mais por fora</b>. Ou seja, ao "
+                    "olhar a &ldquo;sobra para impostos&rdquo;, lembre que a parte do DAS referente ao CPP ja esta "
                     "contabilizada aqui na folha.</div>", unsafe_allow_html=True)
         else:
             st.info("Digite o faturamento de pelo menos um mês acima para calcular o "
