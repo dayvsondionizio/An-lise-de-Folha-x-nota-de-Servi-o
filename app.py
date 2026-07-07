@@ -12,12 +12,15 @@ import esocial_parser as ep
 import relatorio_pdf as rpdf
 
 st.set_page_config(page_title="Análise de Folha × Nota de Serviço", page_icon="📋",
-                   layout="wide", initial_sidebar_state="collapsed")
+                   layout="wide", initial_sidebar_state="collapsed",
+                   menu_items={})
 
 st.markdown("""
 <style>
 html, body, [class*="css"] { font-family:'Segoe UI','Inter',-apple-system,sans-serif; }
 .block-container { padding-top:1.6rem; max-width:1480px; }
+/* oculta sidebar e o botão de abrir */
+[data-testid="stSidebar"], [data-testid="collapsedControl"] { display:none !important; }
 
 /* ── PASSOS DO SIMULADOR ── */
 .sim-step { display:flex; align-items:flex-start; gap:14px; margin:18px 0 6px; }
@@ -252,71 +255,15 @@ def editor_faturamento(comps, key_base, store="fat_por_comp", coluna="Faturament
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SIDEBAR
+# ESTADO GLOBAL
 # ─────────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    _logo_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
-    if os.path.exists(_logo_p):
-        st.image(_logo_p, use_container_width=True)
-    else:
-        st.markdown("<div style='font-weight:800;font-size:18px;color:#F5A623;letter-spacing:.03em'>"
-                    "CONTADOR <span style='color:#c8860f'>DE PADARIAS</span></div>",
-                    unsafe_allow_html=True)
-    with st.expander("🖼️ Logo do escritório"):
-        _lup = st.file_uploader("Enviar logo (PNG/JPG)", type=["png", "jpg", "jpeg"], key="logo_up")
-        if _lup is not None:
-            with open(_logo_p, "wb") as _lf:
-                _lf.write(_lup.read())
-            st.success("Logo salva! Aparece no painel e no PDF.")
-            st.rerun()
-        if os.path.exists(_logo_p) and st.button("Remover logo", use_container_width=True):
-            os.remove(_logo_p); st.rerun()
-    st.markdown("### 📋 Análise de Folha × Nota de Serviço")
-    st.caption("eSocial · Departamento Pessoal")
-    empresa = st.text_input("Nome do cliente / empresa", placeholder="Ex.: Padaria São João Ltda")
-    mostrar_cpf = st.checkbox("🔓 Mostrar CPF completo", value=True,
-                              help="O CPF está completo nos XMLs. Desmarque para mascarar (LGPD) "
-                                   "ao compartilhar a tela.")
-    st.divider()
-    # ── controle de estado ─────────────────────────────────────────────────
-    if "analise" not in st.session_state:
-        st.session_state.analise = None
-    if "upkey" not in st.session_state:
-        st.session_state.upkey = 0
+if "analise" not in st.session_state:
+    st.session_state.analise = None
+if "upkey" not in st.session_state:
+    st.session_state.upkey = 0
 
-    nova = st.button("🔄 Nova análise (recomeçar)", use_container_width=True)
-    # voltar ao HUB (trocar entre Simulador e Análise) quando já há dados
-    if st.session_state.get("analise") is not None and st.session_state.get("modo"):
-        if st.button("🏠 Início (Simulador / Análise)", use_container_width=True):
-            st.session_state.modo = None
-            st.rerun()
-
-    if nova:
-        # zera TUDO: dados, filtros, seleções, valores digitados — começa do zero
-        _keep = st.session_state.get("upkey", 0) + 1
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.session_state.analise = None
-        st.session_state.upkey = _keep   # nova key reseta o file_uploader
-        st.rerun()
-
-    st.divider()
-    with st.expander("ℹ️ Eventos lidos"):
-        st.markdown("""
-| Evento | Conteúdo |
-|---|---|
-| S-2200/2190 | Admissão / cadastro |
-| S-2206 | Reajuste / cargo |
-| S-2230 | Afastamentos |
-| S-2240 | Insalubre/periculoso |
-| S-2299 | Desligamento + rescisão |
-| S-1200 | Rubricas da folha |
-| S-1210 | Líquido pago |
-| S-5001 | Bases INSS |
-| S-5002 | IRRF + dependentes |
-| S-5003 | Bases FGTS |
-| S-5011 | Contribuição patronal |
-""")
+mostrar_cpf = True   # CPF sempre visível (controle removido)
+empresa = ""         # será preenchido pelo PGDAS quando disponível
 
 D = st.session_state.analise
 
