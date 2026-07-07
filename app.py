@@ -18,7 +18,7 @@ st.set_page_config(page_title="Análise de Folha × Nota de Serviço", page_icon
 st.markdown("""
 <style>
 html, body, [class*="css"] { font-family:'Segoe UI','Inter',-apple-system,sans-serif; }
-.block-container { padding-top:1.6rem; max-width:1480px; }
+.block-container { padding-top:3.5rem; max-width:1480px; }
 /* oculta sidebar e o botão de abrir */
 [data-testid="stSidebar"], [data-testid="collapsedControl"] { display:none !important; }
 
