@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+streamlit_log.txt
+.streamlit/secrets.toml
+logo.png
+LOGO S FUNDO 4.png
