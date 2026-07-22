@@ -3,7 +3,7 @@
 Painel Gerencial de Folha de Pagamento — eSocial
 Departamento Pessoal · Contador de Padaria
 """
-import io, re, os
+import io, re, os, json, zipfile
 from datetime import date, datetime
 import pandas as pd
 import streamlit as st
@@ -356,6 +356,1083 @@ def _mes_anterior(p):
     except Exception:
         return None
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFORMIDADE — checklist de risco para empresas prestadoras de serviço
+# ─────────────────────────────────────────────────────────────────────────────
+CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conformidade_dados")
+
+CONFORMIDADE_SECOES = [
+    {"id": "s1", "icone": "🏢", "titulo": "1. Cadastro e Documentação Societária",
+     "desc": "Verificar dados formais das empresas envolvidas",
+     "alerta": ("laranja", "Registre separadamente cada empresa do grupo — empresa principal, "
+                "prestadora(s), matriz e filiais. Mesmos sócios ou endereço não tornam a estrutura "
+                "irregular por si só, mas exigem análise mais rigorosa."),
+     "itens": [
+        ("cnpj_ativo", "critico", "CNPJ ativo e situação cadastral regular (Receita Federal)",
+         "Consultar no portal da RFB. CNPJ inapto ou baixado invalida toda a estrutura."),
+        ("cnae_compativel", "critico", "CNAE principal e secundários compatíveis com a atividade real",
+         "O CNAE não pode ser escolhido apenas para reduzir tributo ou \"cobrir\" atividade diferente."),
+        ("objeto_social", "critico", "Objeto social descreve o serviço que será de fato prestado",
+         "Objeto genérico como \"prestação de serviços em geral\" é indício de fragilidade."),
+        ("capital_compativel", "alto", "Capital social compatível com o porte e a operação (folha+encargos)",
+         "Capital irrisório em empresa com folha alta é sinal de risco alto."),
+        ("data_abertura", "alto", "Data de abertura anterior à admissão dos empregados transferidos",
+         "Empregados admitidos antes da abertura exigem justificativa formal."),
+        ("ie_im", "medio", "Inscrição estadual e municipal obtidas quando obrigatórias", ""),
+        ("quadro_societario", "medio", "Quadro societário documentado — sócios, participações, poderes",
+         "Identificar relações familiares entre sócios das empresas relacionadas."),
+        ("regime_tributario", "medio", "Regime tributário definido e compatível com a atividade",
+         "Cessão/locação de mão de obra é, como regra, impeditiva ao Simples Nacional."),
+     ]},
+    {"id": "s2", "icone": "🗺️", "titulo": "2. Operação Real — Mapa de Atividades",
+     "desc": "Comprovar que existe prestação de serviço determinada e específica",
+     "alerta": ("vermelho", "Regra central (Lei 6.019/1974): a prestadora deve realizar serviços "
+                "determinados e específicos, sendo responsável pela contratação, remuneração e "
+                "direção dos trabalhadores. Simples cessão de mão de obra não é prestação de serviço."),
+     "itens": [
+        ("servico_definido", "critico", "Existe serviço claramente definido — não é \"fornecimento de pessoal\"",
+         "Ex. correto: execução do setor de produção. Ex. errado: disponibilizar empregados."),
+        ("servico_mensuravel", "critico", "O serviço é mensurável e possui entregáveis/indicadores",
+         "Ex: kg produzidos, pedidos entregues, relatório mensal."),
+        ("atividade_compativel", "critico", "Atividade real dos empregados é compatível com CNAE/objeto social", ""),
+        ("unidades_identificadas", "alto", "Identificadas as unidades onde o serviço será prestado",
+         "Empregado em unidade não cadastrada no contrato é indício de desvio."),
+        ("preposto_presente", "alto", "Existe preposto ou gestor da prestadora presente na operação",
+         "Gestão exclusiva pela tomadora é sinal crítico de subordinação direta."),
+        ("controle_jornada", "alto", "Mapeado quem define escala, controla ponto e autoriza horas extras",
+         "Se a tomadora controla tudo, há subordinação direta independente do contrato."),
+        ("decisao_admissao", "medio", "Definido quem aplica advertências e decide admissão/demissão", ""),
+        ("uniforme_epi", "medio", "Uniformes, EPIs e ferramentas fornecidos pela prestadora",
+         "Fornecimento pela tomadora reforça o vínculo direto com ela."),
+     ]},
+    {"id": "s3", "icone": "👥", "titulo": "3. Trabalhadores — Registro e Vínculo",
+     "desc": "Cada empregado individualmente verificado",
+     "alerta": None,
+     "itens": [
+        ("esocial_transmitido", "critico", "Todos os empregados registrados no eSocial da prestadora (S-2200)", ""),
+        ("cbo_compativel", "critico", "CBO de cada empregado é compatível com a função real exercida",
+         "CBO de \"auxiliar administrativo\" para quem trabalha na produção é incompatível."),
+        ("transferencia_formal", "critico", "Transferências de empresa com documentação formal",
+         "Empregado \"transferido\" informalmente sem documento é passivo trabalhista grave."),
+        ("folha_paga_prestadora", "alto", "Folha paga integralmente pela prestadora — sem socorro da tomadora", ""),
+        ("fgts_prestadora", "alto", "FGTS depositado mensalmente pela prestadora no FGTS Digital", ""),
+        ("sem_circulacao", "alto", "Nenhum empregado circula entre empresas sem registro formal", ""),
+        ("logomarca", "medio", "Logomarca no uniforme é da prestadora — não exclusivamente da tomadora", ""),
+     ]},
+    {"id": "s4", "icone": "📄", "titulo": "4. Contrato de Prestação de Serviços",
+     "desc": "O contrato deve refletir a operação real — nunca o contrário",
+     "alerta": ("vermelho", "O contrato é consequência da operação, não o ponto de partida. Um contrato "
+                "bem escrito sobre operação inexistente ou falsa agrava a situação — caracteriza fraude documental."),
+     "itens": [
+        ("contrato_nao_retroativo", "critico", "Contrato assinado antes do início dos serviços (não retroativo)", ""),
+        ("objeto_especifico", "critico", "Objeto do contrato descreve serviço específico — não \"mão de obra\"", ""),
+        ("valor_nao_e_folha", "critico", "Valor do contrato não é exatamente igual a folha+FGTS+imposto",
+         "Preço = folha + X não remunera serviço. O contrato deve remunerar serviço com entregáveis."),
+        ("previsao_medicao", "alto", "Contrato prevê medição, indicadores e relatório mensal de execução", ""),
+        ("preposto_no_contrato", "alto", "Contrato identifica preposto da prestadora responsável pela equipe", ""),
+        ("clausulas_sst", "alto", "Cláusulas de SST, EPI e responsabilidade por acidentes definidas", ""),
+        ("proibicao_pgto_direto", "alto", "Cláusula proíbe pagamento direto de salário pela tomadora", ""),
+        ("vigencia_reajuste", "medio", "Prazo de vigência, reajuste e condições de rescisão definidos", ""),
+        ("relatorio_mensal", "medio", "Relatório mensal de execução produzido e arquivado por competência",
+         "Relatório inexistente = serviço não comprovado, mesmo com contrato."),
+     ]},
+    {"id": "s5", "icone": "💰", "titulo": "5. Fiscal — PGDAS, Notas e Conciliação",
+     "desc": "Receita declarada deve bater com documentos e movimentação bancária",
+     "alerta": None,
+     "itens": [
+        ("pgdas_suportado", "critico", "Receita do PGDAS-D é suportada por notas fiscais do mesmo período",
+         "PGDAS maior que notas = receita artificial. Notas maiores = subnotificação."),
+        ("comercio_com_estoque", "critico", "Receita de comércio possui notas de entrada, estoque e saída",
+         "Venda de mercadorias sem compra e sem estoque é operação fictícia."),
+        ("servico_comprovado", "critico", "Receita de serviços possui contrato, OS ou relatório comprobatório", ""),
+        ("pagamento_conta_propria", "critico", "Pagamentos recebidos transitam pela conta bancária da prestadora",
+         "Recebimento direto na conta da tomadora é confusão patrimonial grave."),
+        ("simples_validado", "alto", "Enquadramento no Simples Nacional validado (atividade não impeditiva)",
+         "Não concluir automaticamente. Exige validação tributária formal."),
+        ("retencao_analisada", "alto", "Análise de retenção previdenciária (11%) e ISS pelo tomador",
+         "Serviços por cessão de mão de obra/empreitada: analisar IN RFB 2.110/2022."),
+        ("conciliacao_mensal", "alto", "Conciliação mensal: PGDAS × NF-e × NFS-e × banco × folha × encargos", ""),
+        ("das_em_dia", "medio", "DAS recolhido dentro do prazo e comprovante arquivado", ""),
+     ]},
+    {"id": "s6", "icone": "🏦", "titulo": "6. Autonomia Financeira da Prestadora",
+     "desc": "Comprovar que a empresa tem vida própria e capacidade econômica",
+     "alerta": ("laranja", "Confusão patrimonial: uma empresa que não consegue pagar a própria folha sem "
+                "transferências informais da tomadora não possui autonomia real — vira operação de fachada."),
+     "itens": [
+        ("conta_propria", "critico", "Prestadora possui conta bancária própria, separada da tomadora", ""),
+        ("saldo_compativel", "critico", "Saldo bancário mensal compatível com pagamento de folha/FGTS/encargos",
+         "Dinheiro só disponível após receber da tomadora = dependência total."),
+        ("despesas_proprias", "alto", "Despesas próprias (contador, aluguel, tecnologia) pagas pela prestadora",
+         "Tomadora pagando contas da prestadora é confusão patrimonial."),
+        ("margem_real", "alto", "Existe margem de lucro real — a prestadora não opera no zero a zero",
+         "Receita igual a custo toda competência indica preço calculado só para cobrir folha."),
+        ("emprestimos_formais", "alto", "Empréstimos entre empresas possuem contrato com juros e prazo", ""),
+        ("cliente_unico", "medio", "Avaliado o risco de dependência de cliente único",
+         "Cliente único não é ilegal, mas aumenta o risco de caracterização como fachada."),
+     ]},
+    {"id": "s7", "icone": "🦺", "titulo": "7. Saúde e Segurança do Trabalho (SST)",
+     "desc": "Regularidade fiscal não protege contra fiscalização trabalhista",
+     "alerta": None,
+     "itens": [
+        ("pgr", "critico", "PGR (Programa de Gerenciamento de Riscos) elaborado e atualizado — NR-1", ""),
+        ("pcmso", "critico", "PCMSO vigente", ""),
+        ("aso_valido", "critico", "ASO válido para cada empregado (admissional/periódico/mudança de risco)", ""),
+        ("laudos", "alto", "Laudos de insalubridade e periculosidade emitidos quando exigido",
+         "Laudo ausente = pagamento indevido ou adicional faltante = passivo trabalhista."),
+        ("epi_ficha", "alto", "Fichas de EPI assinadas e CAs vigentes", ""),
+        ("treinamentos", "alto", "Treinamentos obrigatórios realizados e documentados", ""),
+        ("responsabilidade_sst", "alto", "Responsabilidade por SST claramente definida no contrato",
+         "Ausência de definição = ambas respondem solidariamente em acidente."),
+        ("cat_emitida", "medio", "Acidentes anteriores possuem CAT emitida e registrada no eSocial", ""),
+     ]},
+    {"id": "s8", "icone": "🚨", "titulo": "8. Alertas — Sinais de Risco Grave",
+     "desc": "Se qualquer item abaixo for identificado: suspender e encaminhar para análise jurídica",
+     "alerta": ("vermelho", "Quando qualquer item abaixo for identificado, NÃO emita parecer de "
+                "conformidade. Encaminhe para validação jurídica e tributária antes de qualquer recomendação."),
+     "itens": [
+        ("alerta_sem_estoque", "critico", "Ausente: receita de mercadorias sem nenhuma compra ou estoque", ""),
+        ("alerta_sem_contrato", "critico", "Ausente: receita de serviços sem contrato, relatório ou tomador identificado", ""),
+        ("alerta_pgto_direto", "critico", "Ausente: tomadora paga diretamente salários de empregados da prestadora", ""),
+        ("alerta_direcao_total", "critico", "Ausente: todos os empregados dirigidos exclusivamente pela tomadora", ""),
+        ("alerta_pgdas_sem_doc", "critico", "Ausente: PGDAS-D com receitas sem qualquer documento correspondente", ""),
+        ("alerta_sem_conta", "critico", "Ausente: prestadora sem conta própria ou sem capacidade de pagar folha sozinha", ""),
+        ("alerta_impeditivo", "critico", "Ausente: atividade impeditiva ao Simples (cessão de mão de obra pura)", ""),
+     ]},
+]
+
+# ── diagnóstico de risco: questionário Sim/Não (metodologia trabalhista/previd./tributário) ──
+# cada pergunta é redigida de forma que "Sim" = sinal de risco (red flag)
+DIAGNOSTICO_AREAS = [
+    {"id": "trabalhista", "titulo": "⚖️ Trabalhista — Pejotização e Vínculo de Emprego",
+     "perguntas": [
+        ("pejot_exclusividade", "Pejotização/Vínculo",
+         "O prestador PJ atua com exclusividade, prestando serviço apenas para este tomador?",
+         "alto", "CLT, art. 3º",
+         "Reavaliar carteira de clientes do prestador; documentar múltiplos tomadores se houver."),
+        ("pejot_horario", "Pejotização/Vínculo",
+         "O prestador cumpre horário fixo determinado/controlado pelo tomador?",
+         "alto", "CLT, art. 3º e 6º",
+         "Migrar para remuneração por entrega/projeto e eliminar controle de jornada."),
+        ("pejot_subordinacao", "Pejotização/Vínculo",
+         "O prestador recebe ordens diretas e está sob subordinação hierárquica do tomador?",
+         "alto", "CLT, art. 3º",
+         "Redesenhar governança do contrato: gestão por resultado, não por comando direto."),
+        ("pejot_remuneracao_fixa", "Pejotização/Vínculo",
+         "A remuneração é fixa mensal, sem vínculo com entregas, metas ou projetos?",
+         "alto", "CLT, art. 3º (onerosidade/habitualidade)",
+         "Vincular remuneração a entregáveis específicos e mensuráveis."),
+        ("pejot_integracao", "Pejotização/Vínculo",
+         "O prestador utiliza crachá, e-mail corporativo, uniforme ou estrutura do tomador como empregado?",
+         "alto", "CLT, art. 3º; Súmula 331 TST",
+         "Eliminar elementos de integração que sugerem subordinação/pessoalidade."),
+        ("pejot_objeto_generico", "Pejotização/Vínculo",
+         "O contrato de prestação de serviços descreve o objeto de forma genérica, sem especialização técnica clara?",
+         "alto", "Lei 13.429/2017",
+         "Redigir objeto contratual específico e tecnicamente delimitado."),
+        ("pejot_sem_especializacao", "Pejotização/Vínculo",
+         "Houve terceirização de atividade sem observância dos requisitos de especialização previstos em lei?",
+         "alto", "Lei 13.429/2017 e 13.467/2017",
+         "Revisar contrato de terceirização e comprovar especialização do serviço."),
+        ("grupo_economico", "Grupo Econômico e Estrutura",
+         "Há indícios de grupo econômico não declarado (mesma direção, funcionários e estrutura compartilhados)?",
+         "alto", "CLT, art. 2º, §2º",
+         "Formalizar (ou desfazer) a relação de grupo econômico com documentação societária clara."),
+        ("esocial_divergente", "Grupo Econômico e Estrutura",
+         "Existe divergência entre os dados informados no eSocial e a realidade da prestação de serviço?",
+         "alto", "Decreto 8.373/2014 (eSocial)",
+         "Auditar e corrigir informações do eSocial antes de fiscalização."),
+        ("mei_exclusividade", "MEI / Autônomo",
+         "O MEI ou autônomo contratado presta serviço apenas para esta empresa, com habitualidade?",
+         "alto", "CLT, art. 3º; LC 128/2008 (MEI)",
+         "Verificar se o MEI atende múltiplos clientes; documentar autonomia real."),
+     ]},
+    {"id": "previdenciario", "titulo": "🏛️ Previdenciário — Retenções e Fatos Geradores",
+     "perguntas": [
+        ("cessao_sem_retencao", "Retenção de INSS (Cessão de Mão de Obra)",
+         "A empresa presta serviço mediante cessão de mão de obra (Anexo IV do Simples) sem que o tomador retenha 11%?",
+         "alto", "Lei 8.212/91, art. 31; IN RFB 971/2009",
+         "Orientar o tomador a reter e recolher os 11% na nota fiscal."),
+        ("tomador_sem_retencao", "Retenção de INSS (Cessão de Mão de Obra)",
+         "O tomador de serviços não está retendo a contribuição previdenciária de 11% quando exigido?",
+         "alto", "Lei 8.212/91, art. 31",
+         "Notificar formalmente o tomador sobre a obrigação de retenção."),
+        ("anexo_incompativel", "Retenção de INSS (Cessão de Mão de Obra)",
+         "A empresa está classificada em Anexo do Simples incompatível com a atividade de cessão de mão de obra exercida?",
+         "alto", "LC 123/2006, art. 18, §5º-C/§5º-H",
+         "Reclassificar CNAE/Anexo conforme a atividade efetivamente exercida."),
+        ("fatos_geradores_omissos", "Fatos Geradores e Malha Fiscal",
+         "Existe omissão de fatos geradores de contribuição previdenciária (funcionários não registrados)?",
+         "alto", "Lei 8.212/91; CP, art. 337-A",
+         "Regularizar registros e recolhimentos retroativos antes de autuação."),
+        ("dctfweb_divergente", "Fatos Geradores e Malha Fiscal",
+         "Há divergência entre os valores informados na DCTFWeb e a folha de pagamento real?",
+         "alto", "IN RFB 2.005/2021 (DCTFWeb)",
+         "Conciliar DCTFWeb x eSocial x folha antes do envio das obrigações."),
+        ("sem_comprovantes_retencao", "Fatos Geradores e Malha Fiscal",
+         "A empresa não mantém documentação comprobatória das retenções de INSS de terceiros recebidas/efetuadas?",
+         "medio", "IN RFB 971/2009, art. 88",
+         "Organizar arquivo de comprovantes de retenção por, no mínimo, 5 anos."),
+        ("prolabore_baixo", "Pró-labore e Distribuição de Lucros",
+         "O pró-labore dos sócios é artificialmente baixo, com distribuição de lucros elevada e desproporcional?",
+         "alto", "Lei 8.212/91, art. 28; RIR/2018",
+         "Reequilibrar pró-labore compatível com a função exercida pelo sócio."),
+        ("rat_fap_divergente", "Pró-labore e Distribuição de Lucros",
+         "Há divergência no cálculo/recolhimento do RAT/FAP da empresa?",
+         "medio", "Lei 8.212/91, art. 22, II; Decreto 6.957/2009",
+         "Revisar CNAE de risco e alíquota de RAT/FAP aplicada."),
+     ]},
+    {"id": "tributario", "titulo": "💸 Planejamento Tributário — Risco de Simulação",
+     "perguntas": [
+        ("fracionamento_sem_proposito", "Reorganização Societária",
+         "A empresa foi fracionada em múltiplas PJs para permanecer nas faixas do Simples, sem propósito negocial real?",
+         "alto", "CTN, art. 116, § único; jurisprudência CARF",
+         "Documentar propósito negocial (mercados, operações e sócios distintos) ou reunificar estrutura."),
+        ("reorganizacao_sem_documentacao", "Reorganização Societária",
+         "Houve reorganização societária recente sem ata, laudo ou justificativa formal do propósito negocial?",
+         "medio", "CTN, art. 116, § único",
+         "Produzir documentação contemporânea que sustente a motivação da reorganização."),
+        ("confusao_patrimonial_trib", "Reorganização Societária",
+         "Existe confusão patrimonial entre empresas do grupo (mesmo endereço, funcionários e estrutura operacional)?",
+         "alto", "Código Civil, art. 50",
+         "Segregar efetivamente estrutura operacional, física e de pessoal entre as empresas."),
+        ("precos_fora_mercado", "Simulação de Operações",
+         "Há contratos entre empresas do mesmo grupo com preços/condições fora de padrão de mercado, reduzindo tributos?",
+         "alto", "CTN, art. 116, § único; art. 149",
+         "Ajustar contratos e preços de transferência a parâmetros de mercado (arm's length)."),
+        ("distribuicao_desproporcional", "Simulação de Operações",
+         "A distribuição de lucros aos sócios é desproporcional à participação societária, sem previsão no contrato social?",
+         "medio", "Lei 6.404/76 (por analogia); RIR/2018, art. 238",
+         "Prever expressamente distribuição desproporcional no contrato social, com justificativa."),
+     ]},
+]
+
+_RESPOSTA_OPCOES = ["— não respondido —", "Sim", "Não", "N.A."]
+
+# ── plano de ação 5W2H: modelo genérico inspirado em caso real de alto risco ──
+PLANO_5W2H_MODELO = [
+    {"o_que": "Suspender novas admissões via a empresa terceirizada até revisão jurídica",
+     "por_que": "Estancar o agravamento do risco enquanto o caso é analisado",
+     "onde": "Tomadora e empresa terceirizada", "quando": "Imediato (esta semana)",
+     "quem": "Sócios / Direção", "como": "Comunicado interno suspendendo novas contratações pela terceirizada",
+     "quanto_custa": "R$ 0", "prioridade": "Altíssima", "status": "Pendente"},
+    {"o_que": "Contratar avaliação jurídica trabalhista especializada",
+     "por_que": "Avaliar exposição real e estratégia de regularização",
+     "onde": "Escritório de advocacia trabalhista", "quando": "Em até 7 dias",
+     "quem": "Sócios + advogado trabalhista", "como": "Apresentar histórico completo para parecer técnico",
+     "quanto_custa": "Honorários do escritório", "prioridade": "Altíssima", "status": "Pendente"},
+    {"o_que": "Reinternalizar funções de comando/gerência sob subordinação direta da tomadora",
+     "por_que": "Manter a função de comando 'terceirizada' é o maior ponto de exposição",
+     "onde": "Tomadora", "quando": "Em até 30 dias, após orientação jurídica",
+     "quem": "RH/Departamento Pessoal + advogado", "como": "Rescisão do contrato PJ e novo registro CLT direto",
+     "quanto_custa": "Encargos normais de registro CLT", "prioridade": "Altíssima", "status": "Pendente"},
+    {"o_que": "Reinternalizar atividade-fim quando há dependência exclusiva sem propósito negocial",
+     "por_que": "Terceirizar atividade-fim sem especialização é o núcleo do risco de fraude",
+     "onde": "Tomadora", "quando": "Em até 60 dias, de forma escalonada",
+     "quem": "RH/Departamento Pessoal + advogado", "como": "Migração gradual e documentada para o quadro CLT",
+     "quanto_custa": "Encargos normais de registro CLT", "prioridade": "Altíssima", "status": "Pendente"},
+    {"o_que": "Avaliar regularização espontânea junto a órgãos competentes",
+     "por_que": "Denúncia espontânea pode reduzir multas em relação a autuação de ofício",
+     "onde": "Receita Federal / Ministério do Trabalho", "quando": "Após orientação jurídica",
+     "quem": "Contador + advogado tributário/trabalhista", "como": "Levantar passivo estimado e instrumentos disponíveis",
+     "quanto_custa": "Custo de tributos/encargos retroativos", "prioridade": "Alta", "status": "Pendente"},
+    {"o_que": "Decidir o destino da empresa terceirizada",
+     "por_que": "Empresa sem outros clientes tende a ser vista como instrumento de fraude",
+     "onde": "Empresa terceirizada", "quando": "Em até 90 dias",
+     "quem": "Sócios + contador + advogado",
+     "como": "Avaliar: (a) dissolver e reinternalizar, ou (b) manter só p/ atividades de apoio com outros clientes",
+     "quanto_custa": "Custo de baixa/alteração societária", "prioridade": "Alta", "status": "Pendente"},
+    {"o_que": "Reconstituir apenas terceirizações de baixo risco, com contrato adequado",
+     "por_que": "Persistir terceirizando somente o que é seguro (limpeza, manutenção, TI, administrativo)",
+     "onde": "Tomadora", "quando": "Após reinternalização das funções de risco",
+     "quem": "Sócios + contador", "como": "Usar modelo de contrato e checklist de conformidade já elaborados",
+     "quanto_custa": "R$ 0 a baixo custo", "prioridade": "Média", "status": "Pendente"},
+    {"o_que": "Provisionar contabilmente o passivo trabalhista contingente",
+     "por_que": "Antecipar impacto financeiro caso haja reclamações futuras",
+     "onde": "Contabilidade", "quando": "No próximo balanço/fechamento",
+     "quem": "Contador", "como": "Registrar provisão para contingências conforme estimativa do advogado",
+     "quanto_custa": "Sem custo direto (lançamento contábil)", "prioridade": "Média", "status": "Pendente"},
+    {"o_que": "Implementar checklist de conformidade para toda contratação futura",
+     "por_que": "Evitar repetição do padrão de risco em novas terceirizações",
+     "onde": "Escritório/cliente", "quando": "A partir de agora", "quem": "Sócios + gestores responsáveis",
+     "como": "Aplicar os critérios de seleção de prestador já documentados no checklist operacional",
+     "quanto_custa": "R$ 0", "prioridade": "Média", "status": "Pendente"},
+    {"o_que": "Revisar periodicamente com o checklist de riscos",
+     "por_que": "Garantir que a situação regularizada não volte a se repetir",
+     "onde": "Escritório/cliente", "quando": "A cada 6 meses", "quem": "Contador/consultor",
+     "como": "Reaplicar o diagnóstico de risco e o checklist operacional",
+     "quanto_custa": "R$ 0", "prioridade": "Baixa", "status": "Pendente"},
+]
+
+_RISK_COLOR = {"critico": "#c53030", "alto": "#c05621", "medio": "#975a16"}
+_RISK_LABEL = {"critico": "CRÍTICO", "alto": "ALTO", "medio": "MÉDIO"}
+_PAPEL_OPCOES = ["Prestadora", "Tomadora", "Ambas"]
+_SITUACAO_OPCOES = ["Em análise", "Risco identificado", "Regularizada", "Encerrada"]
+_SITUACAO_COR = {"Em análise": "#975a16", "Risco identificado": "#c53030",
+                 "Regularizada": "#276749", "Encerrada": "#718096"}
+EMPRESAS_PATH = os.path.join(CONF_DIR, "empresas.json")
+
+# ── persistência: cadastro de empresas ───────────────────────────────────────
+def _empresas_carregar():
+    if os.path.exists(EMPRESAS_PATH):
+        try:
+            with open(EMPRESAS_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def _empresas_salvar(lista):
+    os.makedirs(CONF_DIR, exist_ok=True)
+    with open(EMPRESAS_PATH, "w", encoding="utf-8") as f:
+        json.dump(lista, f, ensure_ascii=False, indent=2)
+
+def _gerar_empresa_id(cnpj, razao_social):
+    dig = re.sub(r"\D", "", cnpj or "")
+    if len(dig) >= 8:
+        return dig
+    base = re.sub(r"[^a-z0-9]+", "_", (razao_social or "empresa").lower()).strip("_") or "empresa"
+    return f"{base}_{datetime.now().strftime('%y%m%d%H%M%S')}"
+
+def _empresa_dir(empresa_id):
+    p = os.path.join(CONF_DIR, empresa_id)
+    os.makedirs(p, exist_ok=True)
+    return p
+
+# ── persistência: diagnóstico (checklist) por empresa ────────────────────────
+def _diagnostico_path(empresa_id):
+    return os.path.join(_empresa_dir(empresa_id), "diagnostico.json")
+
+def _diagnostico_carregar(empresa_id):
+    p = _diagnostico_path(empresa_id)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _diagnostico_salvar(empresa_id, itens, observacoes=None):
+    with open(_diagnostico_path(empresa_id), "w", encoding="utf-8") as f:
+        json.dump({"atualizado_em": datetime.now().isoformat(timespec="seconds"), "itens": itens,
+                   "observacoes": observacoes or {}}, f, ensure_ascii=False, indent=2)
+
+# ── persistência: diagnóstico de risco (Sim/Não trabalhista/previd./tributário) ──
+def _risco_path(empresa_id):
+    return os.path.join(_empresa_dir(empresa_id), "diagnostico_risco.json")
+
+def _risco_carregar(empresa_id):
+    p = _risco_path(empresa_id)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _risco_salvar(empresa_id, respostas, observacoes=None):
+    with open(_risco_path(empresa_id), "w", encoding="utf-8") as f:
+        json.dump({"atualizado_em": datetime.now().isoformat(timespec="seconds"), "respostas": respostas,
+                   "observacoes": observacoes or {}}, f, ensure_ascii=False, indent=2)
+
+def _calcular_painel_risco(respostas):
+    """Conta itens Alto/Médio/Baixo por área, a partir das respostas Sim/Não/N.A."""
+    painel = {}
+    total_alto = total_medio = total_respondidos = 0
+    for area in DIAGNOSTICO_AREAS:
+        alto = medio = baixo = respondidos = 0
+        for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
+            resp = respostas.get(qid)
+            if resp in ("Sim", "Não", "N.A."):
+                respondidos += 1
+            if resp == "Sim":
+                if severidade == "alto":
+                    alto += 1
+                else:
+                    medio += 1
+            elif resp in ("Não", "N.A."):
+                baixo += 1
+        painel[area["id"]] = {"alto": alto, "medio": medio, "baixo": baixo, "respondidos": respondidos}
+        total_alto += alto
+        total_medio += medio
+        total_respondidos += respondidos
+    if total_alto >= 3:
+        nivel_geral = "ALTO"
+    elif total_alto >= 1 or total_medio >= 2:
+        nivel_geral = "MÉDIO"
+    elif total_respondidos > 0:
+        nivel_geral = "BAIXO"
+    else:
+        nivel_geral = "—"
+    return painel, total_alto, total_medio, total_respondidos, nivel_geral
+
+# ── persistência: plano de ação 5W2H ─────────────────────────────────────────
+def _plano_path(empresa_id):
+    return os.path.join(_empresa_dir(empresa_id), "plano_5w2h.json")
+
+def _plano_carregar(empresa_id):
+    p = _plano_path(empresa_id)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def _plano_salvar(empresa_id, linhas):
+    with open(_plano_path(empresa_id), "w", encoding="utf-8") as f:
+        json.dump(linhas, f, ensure_ascii=False, indent=2)
+
+# ── persistência: documentos anexados por item do checklist ─────────────────
+def _docs_dir(empresa_id, item_id):
+    p = os.path.join(_empresa_dir(empresa_id), "docs", item_id)
+    os.makedirs(p, exist_ok=True)
+    return p
+
+def _docs_listar(empresa_id, item_id):
+    try:
+        return sorted(os.listdir(_docs_dir(empresa_id, item_id)))
+    except Exception:
+        return []
+
+def _docs_contar(empresa_id, item_id):
+    return len(_docs_listar(empresa_id, item_id))
+
+def _docs_salvar(empresa_id, item_id, arquivo):
+    nome = f"{datetime.now().strftime('%Y%m%d%H%M%S')}__{arquivo.name}"
+    with open(os.path.join(_docs_dir(empresa_id, item_id), nome), "wb") as f:
+        f.write(arquivo.getbuffer())
+
+def _docs_remover(empresa_id, item_id, nome):
+    p = os.path.join(_docs_dir(empresa_id, item_id), nome)
+    if os.path.exists(p):
+        os.remove(p)
+
+def _gerar_dossie_zip(empresa):
+    buf = io.BytesIO()
+    empresa_id = empresa["id"]
+    diag = _diagnostico_carregar(empresa_id)
+    itens_estado = diag.get("itens", {})
+    obs_checklist = diag.get("observacoes", {})
+    risco = _risco_carregar(empresa_id)
+    respostas = risco.get("respostas", {})
+    obs_risco = risco.get("observacoes", {})
+    plano = _plano_carregar(empresa_id)
+    painel, total_alto, total_medio, total_resp, nivel_geral = _calcular_painel_risco(respostas)
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("empresa.json", json.dumps(empresa, ensure_ascii=False, indent=2))
+        zf.writestr("diagnostico.json", json.dumps(diag, ensure_ascii=False, indent=2))
+        zf.writestr("diagnostico_risco.json", json.dumps(risco, ensure_ascii=False, indent=2))
+        zf.writestr("plano_5w2h.json", json.dumps(plano, ensure_ascii=False, indent=2))
+        linhas = [f"DOSSIÊ DE CONFORMIDADE — {empresa.get('razao_social','')}",
+                  f"CNPJ: {empresa.get('cnpj') or '—'}  ·  Papel: {empresa.get('papel','—')}  ·  "
+                  f"Situação: {empresa.get('situacao','—')}",
+                  f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", "",
+                  f"NÍVEL GERAL DE RISCO (sugestão preliminar): {nivel_geral}",
+                  f"Total Alto: {total_alto}  ·  Total Médio: {total_medio}  ·  Respondidos: {total_resp}", ""]
+        linhas.append("\n=== DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ===")
+        for area in DIAGNOSTICO_AREAS:
+            p = painel[area["id"]]
+            linhas.append(f"\n{area['titulo']} — Alto:{p['alto']} Médio:{p['medio']} Baixo:{p['baixo']}")
+            for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
+                resp = respostas.get(qid, "— não respondido —")
+                ndocs_r = _docs_contar(empresa_id, f"risco_{qid}")
+                linhas.append(f"  [{resp}] {pergunta} ({base_legal})"
+                              f"{f' — {ndocs_r} doc(s) anexado(s)' if ndocs_r else ''}")
+                if obs_risco.get(qid):
+                    linhas.append(f"      Obs.: {obs_risco[qid]}")
+        linhas.append("\n=== CHECKLIST OPERACIONAL ===")
+        for sec in CONFORMIDADE_SECOES:
+            linhas.append(f"\n{sec['icone']} {sec['titulo']}")
+            for iid, risco_item, texto, nota in sec["itens"]:
+                marca = "[X]" if itens_estado.get(iid) else "[ ]"
+                ndocs = _docs_contar(empresa_id, iid)
+                linhas.append(f"  {marca} ({_RISK_LABEL[risco_item]}) {texto}"
+                              f"{f' — {ndocs} doc(s) anexado(s)' if ndocs else ''}")
+                if obs_checklist.get(iid):
+                    linhas.append(f"      Obs.: {obs_checklist[iid]}")
+        linhas.append("\n=== PLANO DE AÇÃO 5W2H ===")
+        for item in plano:
+            linhas.append(f"  [{item.get('status','Pendente')}] ({item.get('prioridade','—')}) "
+                          f"{item.get('o_que','')}")
+            if item.get("por_que"):
+                linhas.append(f"      Por quê: {item['por_que']}")
+            if item.get("como"):
+                linhas.append(f"      Como: {item['como']}")
+        zf.writestr("relatorio.txt", "\n".join(linhas))
+        for sec in CONFORMIDADE_SECOES:
+            for iid, risco_item, texto, nota in sec["itens"]:
+                for nome in _docs_listar(empresa_id, iid):
+                    zf.write(os.path.join(_docs_dir(empresa_id, iid), nome),
+                            arcname=f"documentos/checklist_{iid}/{nome}")
+        for area in DIAGNOSTICO_AREAS:
+            for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
+                for nome in _docs_listar(empresa_id, f"risco_{qid}"):
+                    zf.write(os.path.join(_docs_dir(empresa_id, f"risco_{qid}"), nome),
+                            arcname=f"documentos/risco_{qid}/{nome}")
+    buf.seek(0)
+    return buf
+
+# ── tela 1: lista de empresas cadastradas ────────────────────────────────────
+def render_empresas_lista():
+    st.markdown("<div class='hero'><h1>🛡️ Conformidade — Cadastro de Empresas</h1>"
+                "<p>Cadastre cada empresa do grupo (tomadora e prestadora(s)) para consultar a situação "
+                "em tempo real e reunir os documentos necessários para uma fiscalização. "
+                "<b>Análise preliminar — sujeita à validação jurídica e tributária.</b></p></div>",
+                unsafe_allow_html=True)
+
+    empresas = _empresas_carregar()
+
+    if empresas:
+        _tot_emp = len(empresas)
+        _risco_alto_n = _risco_medio_n = _crit_pend_total = 0
+        for _e in empresas:
+            _resp_e = _risco_carregar(_e["id"]).get("respostas", {})
+            _, _, _, _, _nivel_e = _calcular_painel_risco(_resp_e)
+            if _nivel_e == "ALTO":
+                _risco_alto_n += 1
+            elif _nivel_e == "MÉDIO":
+                _risco_medio_n += 1
+            _itens_e = _diagnostico_carregar(_e["id"]).get("itens", {})
+            _crit_pend_total += sum(1 for s in CONFORMIDADE_SECOES for iid, risco_i, *_ in s["itens"]
+                                    if risco_i == "critico" and not _itens_e.get(iid))
+
+        st.markdown("##### 📊 Panorama geral do escritório")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("🏢 Empresas cadastradas", _tot_emp)
+        d2.metric("🚨 Risco alto", _risco_alto_n)
+        d3.metric("🟡 Risco médio", _risco_medio_n)
+        d4.metric("🔴 Itens críticos pendentes", _crit_pend_total)
+        st.divider()
+
+    with st.expander("➕ Cadastrar nova empresa", expanded=(len(empresas) == 0)):
+        with st.form("form_nova_empresa", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            razao = c1.text_input("Razão social *")
+            fantasia = c2.text_input("Nome fantasia")
+            c3, c4 = st.columns(2)
+            cnpj = c3.text_input("CNPJ", placeholder="00.000.000/0000-00")
+            papel = c4.selectbox("Papel no grupo", _PAPEL_OPCOES)
+            c5, c6 = st.columns(2)
+            grupo = c5.text_input("Grupo econômico", placeholder="Ex.: Grupo Sanfernando")
+            cnae = c6.text_input("CNAE principal")
+            c7, c8 = st.columns(2)
+            abertura = c7.date_input("Data de abertura", value=None, format="DD/MM/YYYY")
+            regime = c8.selectbox("Regime tributário",
+                                  ["Simples Nacional", "Lucro Presumido", "Lucro Real", "MEI", "—"])
+            obs = st.text_area("Observações")
+            enviado = st.form_submit_button("Cadastrar empresa", type="primary", use_container_width=True)
+            if enviado:
+                if not razao.strip():
+                    st.error("Informe a razão social.")
+                else:
+                    novo_id = _gerar_empresa_id(cnpj, razao)
+                    empresas.append({
+                        "id": novo_id, "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
+                        "cnpj": cnpj.strip(), "papel": papel, "grupo": grupo.strip(),
+                        "cnae_principal": cnae.strip(),
+                        "data_abertura": abertura.isoformat() if abertura else "",
+                        "regime_tributario": regime, "situacao": "Em análise", "observacoes": obs.strip(),
+                        "criado_em": datetime.now().isoformat(timespec="seconds"),
+                        "atualizado_em": datetime.now().isoformat(timespec="seconds"),
+                    })
+                    _empresas_salvar(empresas)
+                    st.success(f"Empresa **{razao}** cadastrada!")
+                    st.rerun()
+
+    if not empresas:
+        st.info("Nenhuma empresa cadastrada ainda. Use o formulário acima para começar.")
+        return
+
+    st.markdown(f"### 🏢 Empresas cadastradas ({len(empresas)})")
+    _filtro = st.text_input("🔎 Filtrar por nome, CNPJ ou grupo", key="filtro_empresas")
+    for emp in empresas:
+        if _filtro:
+            alvo = (f"{emp['razao_social']} {emp.get('nome_fantasia','')} "
+                    f"{emp.get('cnpj','')} {emp.get('grupo','')}").lower()
+            if _filtro.lower() not in alvo:
+                continue
+        itens_estado = _diagnostico_carregar(emp["id"]).get("itens", {})
+        total = sum(len(s["itens"]) for s in CONFORMIDADE_SECOES)
+        ok = sum(1 for s in CONFORMIDADE_SECOES for iid, *_ in s["itens"] if itens_estado.get(iid))
+        crit_pend = sum(1 for s in CONFORMIDADE_SECOES for iid, risco, *_ in s["itens"]
+                        if risco == "critico" and not itens_estado.get(iid))
+        pct = round(100 * ok / total) if total else 0
+        _cor_sit = _SITUACAO_COR.get(emp.get("situacao", ""), "#718096")
+
+        with st.container(border=True):
+            cc1, cc2, cc3, cc4 = st.columns([3, 1, 1, 1])
+            with cc1:
+                st.markdown(f"**{emp['razao_social']}**"
+                           f"{' — ' + emp['nome_fantasia'] if emp.get('nome_fantasia') else ''}")
+                st.caption(f"CNPJ: {emp.get('cnpj') or '—'}  ·  {emp.get('papel','—')}"
+                          f"{'  ·  Grupo: ' + emp['grupo'] if emp.get('grupo') else ''}")
+            with cc2:
+                st.markdown(f"<span style='font-size:11px;font-weight:800;padding:3px 10px;"
+                           f"border-radius:99px;background:{_cor_sit}22;color:{_cor_sit};"
+                           f"border:1px solid {_cor_sit}55'>{emp.get('situacao','—')}</span>",
+                           unsafe_allow_html=True)
+            with cc3:
+                st.progress(pct/100, text=f"{pct}%")
+            with cc4:
+                if crit_pend:
+                    st.markdown(f"<span style='color:#c53030;font-weight:700;font-size:12px'>"
+                               f"🔴 {crit_pend} crítico(s)</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<span style='color:#276749;font-weight:700;font-size:12px'>✅ ok</span>",
+                               unsafe_allow_html=True)
+            if st.button("Abrir ficha →", key=f"abrir_{emp['id']}", use_container_width=True):
+                st.session_state.conf_empresa_id = emp["id"]
+                st.rerun()
+
+# ── tela 2: ficha da empresa (dados + checklist + documentos) ────────────────
+def render_empresa_ficha(empresa):
+    empresas = _empresas_carregar()
+    emp_id = empresa["id"]
+
+    if st.button("⬅️ Voltar à lista de empresas"):
+        st.session_state.conf_empresa_id = None
+        st.rerun()
+
+    _sit_cor_h = _SITUACAO_COR.get(empresa.get("situacao", ""), "#718096")
+    st.markdown(f"<div class='hero'><h1>🛡️ {empresa['razao_social']}"
+               f"<span style='font-size:12px;font-weight:800;padding:3px 12px;border-radius:99px;"
+               f"background:{_sit_cor_h}22;color:{_sit_cor_h};border:1px solid {_sit_cor_h}55;"
+               f"margin-left:12px;vertical-align:middle'>{empresa.get('situacao','—')}</span></h1>"
+               f"<p>CNPJ: {empresa.get('cnpj') or '—'}  ·  {empresa.get('papel','—')}"
+               f"{'  ·  Grupo: ' + empresa['grupo'] if empresa.get('grupo') else ''}</p></div>",
+                unsafe_allow_html=True)
+
+    with st.expander("✏️ Editar dados cadastrais"):
+        with st.form(f"form_editar_{emp_id}"):
+            c1, c2 = st.columns(2)
+            razao = c1.text_input("Razão social", value=empresa.get("razao_social", ""))
+            fantasia = c2.text_input("Nome fantasia", value=empresa.get("nome_fantasia", ""))
+            c3, c4 = st.columns(2)
+            cnpj = c3.text_input("CNPJ", value=empresa.get("cnpj", ""))
+            _papel_idx = _PAPEL_OPCOES.index(empresa.get("papel")) if empresa.get("papel") in _PAPEL_OPCOES else 0
+            papel = c4.selectbox("Papel no grupo", _PAPEL_OPCOES, index=_papel_idx)
+            c5, c6 = st.columns(2)
+            grupo = c5.text_input("Grupo econômico", value=empresa.get("grupo", ""))
+            cnae = c6.text_input("CNAE principal", value=empresa.get("cnae_principal", ""))
+            _sit_idx = _SITUACAO_OPCOES.index(empresa.get("situacao")) if empresa.get("situacao") in _SITUACAO_OPCOES else 0
+            situacao = st.selectbox("Situação", _SITUACAO_OPCOES, index=_sit_idx)
+            obs = st.text_area("Observações", value=empresa.get("observacoes", ""))
+            col_a, col_b = st.columns(2)
+            salvar = col_a.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True)
+            excluir = col_b.form_submit_button("🗑️ Excluir empresa", use_container_width=True)
+            if salvar:
+                for i, e in enumerate(empresas):
+                    if e["id"] == emp_id:
+                        empresas[i].update({
+                            "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
+                            "cnpj": cnpj.strip(), "papel": papel, "grupo": grupo.strip(),
+                            "cnae_principal": cnae.strip(), "situacao": situacao,
+                            "observacoes": obs.strip(),
+                            "atualizado_em": datetime.now().isoformat(timespec="seconds"),
+                        })
+                _empresas_salvar(empresas)
+                st.success("Dados atualizados!")
+                st.rerun()
+            if excluir:
+                empresas = [e for e in empresas if e["id"] != emp_id]
+                _empresas_salvar(empresas)
+                st.session_state.conf_empresa_id = None
+                st.success("Empresa excluída.")
+                st.rerun()
+
+    st.download_button("📦 Baixar dossiê completo (ZIP — dados + documentos)",
+                       data=_gerar_dossie_zip(empresa), file_name=f"dossie_{emp_id}.zip",
+                       mime="application/zip", use_container_width=True)
+
+    st.divider()
+
+    _alert_css = {
+        "vermelho": ("#fff5f5", "#c53030", "#fc8181"),
+        "laranja": ("#fffaf0", "#c05621", "#f6ad55"),
+    }
+    _nivel_cor = {"ALTO": "#c53030", "MÉDIO": "#975a16", "BAIXO": "#276749", "—": "#718096"}
+
+    outer_tabs = st.tabs(["🔍 Diagnóstico de Risco", "📋 Checklist Operacional", "🎯 Plano de Ação 5W2H"])
+
+    # ═══ ABA 1: DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ═══
+    with outer_tabs[0]:
+        risco_key = f"risco_state_{emp_id}"
+        risco_obs_key = f"risco_obs_state_{emp_id}"
+        if risco_key not in st.session_state:
+            _risco_carregado = _risco_carregar(emp_id)
+            st.session_state[risco_key] = _risco_carregado.get("respostas", {})
+            st.session_state[risco_obs_key] = _risco_carregado.get("observacoes", {})
+
+        st.caption("Cada pergunta foi redigida de forma que a resposta **Sim** indica um sinal de risco "
+                   "(red flag). O nível geral é uma sugestão preliminar — a classificação final exige "
+                   "validação jurídica e tributária.")
+
+        painel, total_alto, total_medio, total_resp, nivel_geral = _calcular_painel_risco(st.session_state[risco_key])
+
+        if nivel_geral == "ALTO":
+            st.markdown(
+                "<div style='background:#fff5f5;border:1px solid #fc8181;color:#c53030;border-radius:10px;"
+                "padding:14px 18px;margin-bottom:14px;font-size:13px'>"
+                "🚨 <b>PADRÃO DE ALTO RISCO — AÇÃO IMEDIATA RECOMENDADA.</b> Recomenda-se acionar "
+                "advogado trabalhista antes de qualquer decisão definitiva. A regularidade formal dos "
+                "pagamentos (FGTS, INSS, DAS) não neutraliza o risco de fundo — a Justiça do Trabalho e o "
+                "Fisco avaliam a realidade da relação, não a formalidade contratual. Veja a aba "
+                "<b>🎯 Plano de Ação 5W2H</b>.</div>", unsafe_allow_html=True)
+
+        nc1, nc2, nc3 = st.columns([2, 1, 1])
+        with nc1:
+            st.markdown(f"<div style='background:{_nivel_cor[nivel_geral]}15;border:1px solid "
+                       f"{_nivel_cor[nivel_geral]}55;border-radius:10px;padding:10px 16px'>"
+                       f"<span style='font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.7'>"
+                       f"Nível geral de risco (sugestão)</span><br>"
+                       f"<span style='font-size:20px;font-weight:800;color:{_nivel_cor[nivel_geral]}'>"
+                       f"{nivel_geral}</span></div>", unsafe_allow_html=True)
+        nc2.metric("🔴 Total Alto", total_alto)
+        nc3.metric("🟡 Total Médio", total_medio)
+
+        st.markdown("")
+        painel_cols = st.columns(len(DIAGNOSTICO_AREAS))
+        for col, area in zip(painel_cols, DIAGNOSTICO_AREAS):
+            p = painel[area["id"]]
+            with col:
+                st.markdown(f"**{area['titulo']}**")
+                st.caption(f"🔴 {p['alto']}  ·  🟡 {p['medio']}  ·  🟢 {p['baixo']}  ·  "
+                          f"{p['respondidos']}/{len(area['perguntas'])} respondidas")
+
+        if st.button("💾 Salvar diagnóstico de risco", key=f"salvar_risco_{emp_id}"):
+            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+            st.success("Salvo!")
+
+        st.divider()
+
+        risco_tabs = st.tabs([a["titulo"] for a in DIAGNOSTICO_AREAS])
+        for rtab, area in zip(risco_tabs, DIAGNOSTICO_AREAS):
+            with rtab:
+                for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
+                    resp_atual = st.session_state[risco_key].get(qid, "— não respondido —")
+                    _ndocs_r = _docs_contar(emp_id, f"risco_{qid}")
+                    if resp_atual == "Sim":
+                        _prefixo = "🔴" if severidade == "alto" else "🟡"
+                    elif resp_atual in ("Não", "N.A."):
+                        _prefixo = "✅"
+                    else:
+                        _prefixo = "⬜"
+                    _sufixo_doc = f" · 📎{_ndocs_r}" if _ndocs_r else ""
+                    with st.expander(f"{_prefixo} {pergunta}{_sufixo_doc}"):
+                        st.caption(f"Categoria: {categoria}  ·  Base legal: {base_legal}")
+                        _idx = _RESPOSTA_OPCOES.index(resp_atual) if resp_atual in _RESPOSTA_OPCOES else 0
+                        nova_resp = st.radio("Resposta", _RESPOSTA_OPCOES, index=_idx, horizontal=True,
+                                             key=f"risco_{emp_id}_{qid}", label_visibility="collapsed")
+                        if nova_resp != resp_atual:
+                            st.session_state[risco_key][qid] = nova_resp
+                            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+                            st.rerun()
+                        if nova_resp == "Sim":
+                            st.markdown(f"<div style='background:#fff5f5;border:1px solid #fc8181;"
+                                       f"color:#c53030;border-radius:8px;padding:8px 12px;margin-top:8px;"
+                                       f"font-size:13px'>⚠️ <b>Ação recomendada:</b> {acao}</div>",
+                                       unsafe_allow_html=True)
+
+                        _obs_atual_r = st.session_state[risco_obs_key].get(qid, "")
+                        _nova_obs_r = st.text_area("📝 Observação", value=_obs_atual_r,
+                                                   key=f"obsrisco_{emp_id}_{qid}",
+                                                   placeholder="Digite aqui uma observação sobre este ponto...")
+                        if _nova_obs_r != _obs_atual_r:
+                            st.session_state[risco_obs_key][qid] = _nova_obs_r
+                            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+
+                        st.markdown("**📎 Documentos anexados**")
+                        _docs_r = _docs_listar(emp_id, f"risco_{qid}")
+                        if _docs_r:
+                            for _d in _docs_r:
+                                _drc1, _drc2, _drc3 = st.columns([4, 1, 1])
+                                _drc1.caption(_d.split("__", 1)[-1])
+                                with open(os.path.join(_docs_dir(emp_id, f"risco_{qid}"), _d), "rb") as _fh:
+                                    _drc2.download_button("⬇️", data=_fh.read(), file_name=_d.split("__", 1)[-1],
+                                                          key=f"dlrisco_{emp_id}_{qid}_{_d}")
+                                if _drc3.button("🗑️", key=f"rmrisco_{emp_id}_{qid}_{_d}"):
+                                    _docs_remover(emp_id, f"risco_{qid}", _d)
+                                    st.rerun()
+                        else:
+                            st.caption("Nenhum documento anexado ainda.")
+
+                        _upcnt_key_r = f"upcnt_risco_{emp_id}_{qid}"
+                        if _upcnt_key_r not in st.session_state:
+                            st.session_state[_upcnt_key_r] = 0
+                        _novo_doc_r = st.file_uploader(
+                            "Anexar documento", key=f"uprisco_{emp_id}_{qid}_{st.session_state[_upcnt_key_r]}",
+                            accept_multiple_files=True, label_visibility="collapsed")
+                        if _novo_doc_r:
+                            for _arq in _novo_doc_r:
+                                _docs_salvar(emp_id, f"risco_{qid}", _arq)
+                            st.session_state[_upcnt_key_r] += 1
+                            st.success(f"{len(_novo_doc_r)} arquivo(s) anexado(s)!")
+                            st.rerun()
+
+        _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+
+    # ═══ ABA 2: CHECKLIST OPERACIONAL (documentos por ponto) ═══
+    with outer_tabs[1]:
+        key_state = f"conf_state_{emp_id}"
+        obs_key = f"conf_obs_state_{emp_id}"
+        if key_state not in st.session_state:
+            _diag_carregado = _diagnostico_carregar(emp_id)
+            st.session_state[key_state] = _diag_carregado.get("itens", {})
+            st.session_state[obs_key] = _diag_carregado.get("observacoes", {})
+
+        total_itens, total_ok = 0, 0
+        pend = {"critico": [], "alto": [], "medio": []}
+        for sec in CONFORMIDADE_SECOES:
+            for iid, risco, texto, nota in sec["itens"]:
+                total_itens += 1
+                if st.session_state[key_state].get(iid):
+                    total_ok += 1
+                else:
+                    pend[risco].append((sec["titulo"], texto))
+
+        pct = round(100 * total_ok / total_itens) if total_itens else 0
+        ccx1, ccx2 = st.columns([4, 1])
+        with ccx1:
+            st.progress(pct/100, text=f"Progresso do checklist — {pct}% ({total_ok}/{total_itens})")
+        with ccx2:
+            if st.button("💾 Salvar checklist", use_container_width=True):
+                _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+                st.success("Salvo!")
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("🔴 Crítico pendente", len(pend["critico"]))
+        m2.metric("🟠 Alto pendente", len(pend["alto"]))
+        m3.metric("🟡 Médio pendente", len(pend["medio"]))
+        m4.metric("✅ Verificados", total_ok)
+
+        st.divider()
+
+        tabs = st.tabs([f"{s['icone']} {s['id'].upper()}" for s in CONFORMIDADE_SECOES])
+        for tab, sec in zip(tabs, CONFORMIDADE_SECOES):
+            with tab:
+                st.markdown(f"##### {sec['titulo']}")
+                st.caption(sec["desc"])
+                if sec["alerta"]:
+                    _cor, _txt = sec["alerta"]
+                    bg, fg, bd = _alert_css[_cor]
+                    st.markdown(f"<div style='background:{bg};border:1px solid {bd};color:{fg};"
+                               f"border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px'>"
+                               f"⚠️ {_txt}</div>", unsafe_allow_html=True)
+                for iid, risco, texto, nota in sec["itens"]:
+                    checked = st.session_state[key_state].get(iid, False)
+                    ndocs = _docs_contar(emp_id, iid)
+                    _icone_ck = "✅" if checked else "⬜"
+                    _icone_doc = f" · 📎{ndocs}" if ndocs else ""
+                    with st.expander(f"{_icone_ck} {texto}  ·  {_RISK_LABEL[risco]}{_icone_doc}"):
+                        if nota:
+                            st.caption(nota)
+                        novo_check = st.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
+                        if novo_check != checked:
+                            st.session_state[key_state][iid] = novo_check
+                            _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+                            st.rerun()
+
+                        _obs_atual = st.session_state[obs_key].get(iid, "")
+                        _nova_obs = st.text_area("📝 Observação", value=_obs_atual, key=f"obs_{emp_id}_{iid}",
+                                                 placeholder="Digite aqui uma observação sobre este ponto...")
+                        if _nova_obs != _obs_atual:
+                            st.session_state[obs_key][iid] = _nova_obs
+                            _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+
+                        st.markdown("**📎 Documentos anexados**")
+                        _docs = _docs_listar(emp_id, iid)
+                        if _docs:
+                            for _d in _docs:
+                                _dc1, _dc2, _dc3 = st.columns([4, 1, 1])
+                                _dc1.caption(_d.split("__", 1)[-1])
+                                with open(os.path.join(_docs_dir(emp_id, iid), _d), "rb") as _fh:
+                                    _dc2.download_button("⬇️", data=_fh.read(), file_name=_d.split("__", 1)[-1],
+                                                         key=f"dl_{emp_id}_{iid}_{_d}")
+                                if _dc3.button("🗑️", key=f"rm_{emp_id}_{iid}_{_d}"):
+                                    _docs_remover(emp_id, iid, _d)
+                                    st.rerun()
+                        else:
+                            st.caption("Nenhum documento anexado ainda.")
+
+                        _upcnt_key = f"upcnt_{emp_id}_{iid}"
+                        if _upcnt_key not in st.session_state:
+                            st.session_state[_upcnt_key] = 0
+                        _novo_doc = st.file_uploader(
+                            "Anexar documento", key=f"up_{emp_id}_{iid}_{st.session_state[_upcnt_key]}",
+                            accept_multiple_files=True, label_visibility="collapsed")
+                        if _novo_doc:
+                            for _arq in _novo_doc:
+                                _docs_salvar(emp_id, iid, _arq)
+                            st.session_state[_upcnt_key] += 1
+                            st.success(f"{len(_novo_doc)} arquivo(s) anexado(s)!")
+                            st.rerun()
+
+        _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+
+    # ═══ ABA 3: PLANO DE AÇÃO 5W2H ═══
+    _PRIORIDADE_OPCOES = ["Altíssima", "Alta", "Média", "Baixa"]
+    _STATUS_OPCOES = ["Pendente", "Em andamento", "Concluído"]
+    _PRIO_COR = {"Altíssima": "#c53030", "Alta": "#c05621", "Média": "#975a16", "Baixa": "#276749"}
+    _STATUS_COR = {"Pendente": "#718096", "Em andamento": "#2a5080", "Concluído": "#276749"}
+
+    with outer_tabs[2]:
+        plano_key = f"plano_state_{emp_id}"
+        if plano_key not in st.session_state:
+            st.session_state[plano_key] = _plano_carregar(emp_id)
+        _plano = st.session_state[plano_key]
+
+        st.caption("Ações estruturadas para reduzir os riscos identificados no diagnóstico. Defina "
+                  "responsável, prazo, prioridade e acompanhe o status de cada uma.")
+
+        if _plano:
+            _total_acoes = len(_plano)
+            _concluidas = sum(1 for a in _plano if a.get("status") == "Concluído")
+            _andamento = sum(1 for a in _plano if a.get("status") == "Em andamento")
+            _pendentes = _total_acoes - _concluidas - _andamento
+            _pct_plano = round(100 * _concluidas / _total_acoes) if _total_acoes else 0
+            st.progress(_pct_plano / 100, text=f"{_concluidas}/{_total_acoes} ações concluídas ({_pct_plano}%)")
+            pm1, pm2, pm3 = st.columns(3)
+            pm1.metric("⏳ Pendentes", _pendentes)
+            pm2.metric("🔄 Em andamento", _andamento)
+            pm3.metric("✅ Concluídas", _concluidas)
+
+        pbtn1, pbtn2 = st.columns(2)
+        with pbtn1:
+            if not _plano:
+                if st.button("📥 Carregar modelo padrão (10 ações)", key=f"modelo_5w2h_{emp_id}",
+                            use_container_width=True):
+                    st.session_state[plano_key] = [dict(x) for x in PLANO_5W2H_MODELO]
+                    _plano_salvar(emp_id, st.session_state[plano_key])
+                    st.rerun()
+        with pbtn2:
+            if _plano:
+                if st.button("🗑️ Limpar plano", key=f"limpar_5w2h_{emp_id}", use_container_width=True):
+                    st.session_state[plano_key] = []
+                    _plano_salvar(emp_id, [])
+                    st.rerun()
+
+        st.divider()
+
+        with st.expander("➕ Adicionar nova ação", expanded=not _plano):
+            with st.form(f"form_nova_acao_{emp_id}", clear_on_submit=True):
+                novo_oque = st.text_input("O quê *")
+                fc1, fc2 = st.columns(2)
+                novo_porque = fc1.text_area("Por quê", height=80)
+                novo_como = fc2.text_area("Como", height=80)
+                fc3, fc4, fc5 = st.columns(3)
+                novo_onde = fc3.text_input("Onde")
+                novo_quando = fc4.text_input("Quando")
+                novo_quem = fc5.text_input("Quem")
+                fc6, fc7 = st.columns(2)
+                novo_custo = fc6.text_input("Quanto custa")
+                nova_prioridade = fc7.selectbox("Prioridade", _PRIORIDADE_OPCOES)
+                if st.form_submit_button("Adicionar ação", type="primary", use_container_width=True):
+                    if novo_oque.strip():
+                        st.session_state[plano_key].append({
+                            "o_que": novo_oque.strip(), "por_que": novo_porque.strip(),
+                            "onde": novo_onde.strip(), "quando": novo_quando.strip(),
+                            "quem": novo_quem.strip(), "como": novo_como.strip(),
+                            "quanto_custa": novo_custo.strip(), "prioridade": nova_prioridade,
+                            "status": "Pendente",
+                        })
+                        _plano_salvar(emp_id, st.session_state[plano_key])
+                        st.rerun()
+                    else:
+                        st.error("Preencha ao menos o campo 'O quê'.")
+
+        if not _plano:
+            st.info("Nenhuma ação cadastrada ainda. Use o formulário acima ou carregue o modelo padrão.")
+
+        for idx, acao in enumerate(_plano):
+            with st.container(border=True):
+                top1, top2, top3 = st.columns([5, 3, 1])
+                with top1:
+                    st.markdown(f"**{acao.get('o_que') or '(sem título)'}**")
+                with top2:
+                    _pcor = _PRIO_COR.get(acao.get("prioridade"), "#718096")
+                    _scor = _STATUS_COR.get(acao.get("status"), "#718096")
+                    st.markdown(
+                        f"<span style='font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;"
+                        f"background:{_pcor}22;color:{_pcor};border:1px solid {_pcor}55;margin-right:4px'>"
+                        f"{acao.get('prioridade','—')}</span>"
+                        f"<span style='font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;"
+                        f"background:{_scor}22;color:{_scor};border:1px solid {_scor}55'>"
+                        f"{acao.get('status','Pendente')}</span>", unsafe_allow_html=True)
+                with top3:
+                    if st.button("🗑️", key=f"del_acao_{emp_id}_{idx}"):
+                        st.session_state[plano_key].pop(idx)
+                        _plano_salvar(emp_id, st.session_state[plano_key])
+                        st.rerun()
+
+                if acao.get("por_que"):
+                    st.caption(f"**Por quê:** {acao['por_que']}")
+                _meta = []
+                if acao.get("onde"): _meta.append(f"📍 {acao['onde']}")
+                if acao.get("quando"): _meta.append(f"🗓️ {acao['quando']}")
+                if acao.get("quem"): _meta.append(f"👤 {acao['quem']}")
+                if acao.get("quanto_custa"): _meta.append(f"💰 {acao['quanto_custa']}")
+                if _meta:
+                    st.caption("  ·  ".join(_meta))
+                if acao.get("como"):
+                    st.markdown(f"<div style='font-size:13px;color:#4a5568;margin-top:4px'>"
+                               f"{acao['como']}</div>", unsafe_allow_html=True)
+
+                with st.expander("✏️ Editar / mudar status"):
+                    with st.form(f"form_edit_acao_{emp_id}_{idx}"):
+                        e_oque = st.text_input("O quê", value=acao.get("o_que", ""))
+                        ec1, ec2 = st.columns(2)
+                        e_porque = ec1.text_area("Por quê", value=acao.get("por_que", ""), height=80)
+                        e_como = ec2.text_area("Como", value=acao.get("como", ""), height=80)
+                        ec3, ec4, ec5 = st.columns(3)
+                        e_onde = ec3.text_input("Onde", value=acao.get("onde", ""))
+                        e_quando = ec4.text_input("Quando", value=acao.get("quando", ""))
+                        e_quem = ec5.text_input("Quem", value=acao.get("quem", ""))
+                        ec6, ec7, ec8 = st.columns(3)
+                        e_custo = ec6.text_input("Quanto custa", value=acao.get("quanto_custa", ""))
+                        _prio_idx = _PRIORIDADE_OPCOES.index(acao.get("prioridade")) \
+                            if acao.get("prioridade") in _PRIORIDADE_OPCOES else 2
+                        e_prio = ec7.selectbox("Prioridade", _PRIORIDADE_OPCOES, index=_prio_idx)
+                        _status_idx = _STATUS_OPCOES.index(acao.get("status")) \
+                            if acao.get("status") in _STATUS_OPCOES else 0
+                        e_status = ec8.selectbox("Status", _STATUS_OPCOES, index=_status_idx)
+                        if st.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True):
+                            st.session_state[plano_key][idx] = {
+                                "o_que": e_oque.strip(), "por_que": e_porque.strip(), "onde": e_onde.strip(),
+                                "quando": e_quando.strip(), "quem": e_quem.strip(), "como": e_como.strip(),
+                                "quanto_custa": e_custo.strip(), "prioridade": e_prio, "status": e_status,
+                            }
+                            _plano_salvar(emp_id, st.session_state[plano_key])
+                            st.success("Ação atualizada!")
+                            st.rerun()
+
+    st.divider()
+    st.markdown("<div style='background:rgba(0,0,0,.03);border-radius:10px;padding:14px 18px;"
+                "margin-top:16px;font-size:12px;color:#718096;line-height:1.7'>"
+                "<b>Nota legal e ética:</b> ferramenta de orientação interna. Nenhuma resposta \"verificado\" "
+                "ou \"não\" equivale a \"sem risco\" ou \"aprovado\". Toda análise exige validação por "
+                "responsável jurídico habilitado e responsável tributário com CRC. A cessão/locação de mão "
+                "de obra é, como regra, impeditiva ao Simples Nacional (LC 123/2006). A Lei 6.019/1974 exige "
+                "que a prestadora execute serviços determinados e específicos, sendo responsável pela "
+                "contratação, remuneração e direção dos trabalhadores.</div>", unsafe_allow_html=True)
+
+# ── orquestrador ──────────────────────────────────────────────────────────────
+def render_conformidade():
+    if "conf_empresa_id" not in st.session_state:
+        st.session_state.conf_empresa_id = None
+
+    if st.session_state.conf_empresa_id:
+        empresas = _empresas_carregar()
+        empresa = next((e for e in empresas if e["id"] == st.session_state.conf_empresa_id), None)
+        if empresa is None:
+            st.session_state.conf_empresa_id = None
+            st.rerun()
+        render_empresa_ficha(empresa)
+    else:
+        render_empresas_lista()
+
 def render_simulador(meses, fgtsdf):
     def _step(n, title, desc=""):
         _d = f"<br><span style='font-size:12px;opacity:.75'>{desc}</span>" if desc else ""
@@ -662,7 +1739,7 @@ if _modo is None:
                 "<p>Escolha por onde começar. O normal é simular primeiro (achar a nota e fazer o "
                 "PGDAS) e depois analisar a folha. Os arquivos anexados servem para os dois.</p></div>",
                 unsafe_allow_html=True)
-    hc1, hc2 = st.columns(2)
+    hc1, hc2, hc3 = st.columns(3)
     with hc1:
         st.markdown("<div class='box'><h3>🎯 Simulador PGDAS</h3>"
                     "<p style='font-size:13px;color:#48535f'>Descubra <b>quanto de nota emitir</b> "
@@ -679,6 +1756,14 @@ if _modo is None:
                     unsafe_allow_html=True)
         if st.button("📊 Abrir Análise de Folha", use_container_width=True):
             st.session_state.modo = "analise"; st.rerun()
+    with hc3:
+        st.markdown("<div class='box'><h3>🛡️ Conformidade</h3>"
+                    "<p style='font-size:13px;color:#48535f'>Checklist de risco para clientes que "
+                    "possuem (ou vão abrir) uma <b>segunda empresa prestadora</b> com empregados. "
+                    "Mapeia áreas críticas e guarda o diagnóstico do cliente.</p></div>",
+                    unsafe_allow_html=True)
+        if st.button("🛡️ Abrir Conformidade", use_container_width=True):
+            st.session_state.modo = "conformidade"; st.rerun()
     st.stop()
 
 # ── MODO SIMULADOR (pré-análise) ──────────────────────────────────────────────
@@ -808,6 +1893,11 @@ if _modo == "simulador":
                "Pode editar depois na aba 💰 Gastos por Mês / 🏦 Encargos.")
     st.stop()
 
+# ── MODO CONFORMIDADE (cadastro de empresas + checklist — não depende de folha) ──
+if _modo == "conformidade":
+    render_conformidade()
+    st.stop()
+
 adm, alt, afa = D["admissoes"], D["alteracoes"], D["afastamentos"]
 exr, des, rub = D["exp_risco"], D["desligamentos"], D["rubricas"]
 rem, pag = D["remuneracao"], D["pagamentos"]
@@ -824,7 +1914,7 @@ def nome_de(cpf, mat=""):
         return nm
     return f"CPF {mask_cpf(cpf)}" if cpf else (f"Matr. {mat}" if mat else "—")
 
-if inss.empty and adm.empty and pag.empty and _modo != "simulador":
+if inss.empty and adm.empty and pag.empty and _modo not in ("simulador", "conformidade"):
     st.error("Nenhum dado de folha reconhecido. Verifique se os ZIPs contêm eventos do eSocial.")
     st.stop()
 
