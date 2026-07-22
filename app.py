@@ -10,6 +10,7 @@ import streamlit as st
 
 import esocial_parser as ep
 import relatorio_pdf as rpdf
+import db_supabase as db
 
 st.set_page_config(page_title="Análise de Folha × Nota de Serviço", page_icon="📋",
                    layout="wide", initial_sidebar_state="collapsed",
@@ -359,8 +360,6 @@ def _mes_anterior(p):
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFORMIDADE — checklist de risco para empresas prestadoras de serviço
 # ─────────────────────────────────────────────────────────────────────────────
-CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conformidade_dados")
-
 CONFORMIDADE_SECOES = [
     {"id": "s1", "icone": "🏢", "titulo": "1. Cadastro e Documentação Societária",
      "desc": "Verificar dados formais das empresas envolvidas",
@@ -669,72 +668,28 @@ _PAPEL_OPCOES = ["Prestadora", "Tomadora", "Ambas"]
 _SITUACAO_OPCOES = ["Em análise", "Risco identificado", "Regularizada", "Encerrada"]
 _SITUACAO_COR = {"Em análise": "#975a16", "Risco identificado": "#c53030",
                  "Regularizada": "#276749", "Encerrada": "#718096"}
-EMPRESAS_PATH = os.path.join(CONF_DIR, "empresas.json")
-
-# ── persistência: cadastro de empresas ───────────────────────────────────────
+# ── persistência: tudo via Supabase (schema esocial_dashboard) ──────────────
+# empresas, checklist, diagnóstico de risco, plano de ação e documentos vivem
+# no banco — ver db_supabase.py. As funções abaixo mantêm nomes compatíveis
+# com o restante do app para minimizar mudanças nos pontos de chamada.
 def _empresas_carregar():
-    if os.path.exists(EMPRESAS_PATH):
-        try:
-            with open(EMPRESAS_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-def _empresas_salvar(lista):
-    os.makedirs(CONF_DIR, exist_ok=True)
-    with open(EMPRESAS_PATH, "w", encoding="utf-8") as f:
-        json.dump(lista, f, ensure_ascii=False, indent=2)
-
-def _gerar_empresa_id(cnpj, razao_social):
-    dig = re.sub(r"\D", "", cnpj or "")
-    if len(dig) >= 8:
-        return dig
-    base = re.sub(r"[^a-z0-9]+", "_", (razao_social or "empresa").lower()).strip("_") or "empresa"
-    return f"{base}_{datetime.now().strftime('%y%m%d%H%M%S')}"
-
-def _empresa_dir(empresa_id):
-    p = os.path.join(CONF_DIR, empresa_id)
-    os.makedirs(p, exist_ok=True)
-    return p
-
-# ── persistência: diagnóstico (checklist) por empresa ────────────────────────
-def _diagnostico_path(empresa_id):
-    return os.path.join(_empresa_dir(empresa_id), "diagnostico.json")
+    return db.empresas_listar()
 
 def _diagnostico_carregar(empresa_id):
-    p = _diagnostico_path(empresa_id)
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    itens, observacoes = db.checklist_carregar(empresa_id)
+    return {"itens": itens, "observacoes": observacoes}
 
-def _diagnostico_salvar(empresa_id, itens, observacoes=None):
-    with open(_diagnostico_path(empresa_id), "w", encoding="utf-8") as f:
-        json.dump({"atualizado_em": datetime.now().isoformat(timespec="seconds"), "itens": itens,
-                   "observacoes": observacoes or {}}, f, ensure_ascii=False, indent=2)
-
-# ── persistência: diagnóstico de risco (Sim/Não trabalhista/previd./tributário) ──
-def _risco_path(empresa_id):
-    return os.path.join(_empresa_dir(empresa_id), "diagnostico_risco.json")
+def _diagnostico_upsert(empresa_id, item_id, verificado, observacao):
+    db.checklist_upsert_item(empresa_id, item_id, verificado, observacao)
 
 def _risco_carregar(empresa_id):
-    p = _risco_path(empresa_id)
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    respostas, observacoes = db.risco_carregar(empresa_id)
+    return {"respostas": respostas, "observacoes": observacoes}
 
-def _risco_salvar(empresa_id, respostas, observacoes=None):
-    with open(_risco_path(empresa_id), "w", encoding="utf-8") as f:
-        json.dump({"atualizado_em": datetime.now().isoformat(timespec="seconds"), "respostas": respostas,
-                   "observacoes": observacoes or {}}, f, ensure_ascii=False, indent=2)
+def _risco_upsert(empresa_id, pergunta_id, resposta, observacao):
+    if resposta not in ("Sim", "Não", "N.A."):
+        resposta = None
+    db.risco_upsert_item(empresa_id, pergunta_id, resposta, observacao)
 
 def _calcular_painel_risco(respostas):
     """Conta itens Alto/Médio/Baixo por área, a partir das respostas Sim/Não/N.A."""
@@ -767,48 +722,21 @@ def _calcular_painel_risco(respostas):
         nivel_geral = "—"
     return painel, total_alto, total_medio, total_respondidos, nivel_geral
 
-# ── persistência: plano de ação 5W2H ─────────────────────────────────────────
-def _plano_path(empresa_id):
-    return os.path.join(_empresa_dir(empresa_id), "plano_5w2h.json")
-
+# ── plano de ação 5W2H — nomes compatíveis via db_supabase ───────────────────
 def _plano_carregar(empresa_id):
-    p = _plano_path(empresa_id)
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+    return db.plano_listar(empresa_id)
 
-def _plano_salvar(empresa_id, linhas):
-    with open(_plano_path(empresa_id), "w", encoding="utf-8") as f:
-        json.dump(linhas, f, ensure_ascii=False, indent=2)
-
-# ── persistência: documentos anexados por item do checklist ─────────────────
-def _docs_dir(empresa_id, item_id):
-    p = os.path.join(_empresa_dir(empresa_id), "docs", item_id)
-    os.makedirs(p, exist_ok=True)
-    return p
-
-def _docs_listar(empresa_id, item_id):
-    try:
-        return sorted(os.listdir(_docs_dir(empresa_id, item_id)))
-    except Exception:
-        return []
-
-def _docs_contar(empresa_id, item_id):
-    return len(_docs_listar(empresa_id, item_id))
+# ── documentos anexados (Storage do Supabase + mapa único por empresa) ───────
+def _docs_mapa(empresa_id):
+    """Uma única consulta trazendo os documentos de TODOS os itens da empresa,
+    evitando N chamadas de rede (uma por item de checklist/risco)."""
+    return db.docs_listar_mapa(empresa_id)
 
 def _docs_salvar(empresa_id, item_id, arquivo):
-    nome = f"{datetime.now().strftime('%Y%m%d%H%M%S')}__{arquivo.name}"
-    with open(os.path.join(_docs_dir(empresa_id, item_id), nome), "wb") as f:
-        f.write(arquivo.getbuffer())
+    db.docs_salvar(empresa_id, item_id, arquivo, datetime.now().strftime("%Y%m%d%H%M%S"))
 
 def _docs_remover(empresa_id, item_id, nome):
-    p = os.path.join(_docs_dir(empresa_id, item_id), nome)
-    if os.path.exists(p):
-        os.remove(p)
+    db.docs_remover(empresa_id, item_id, nome)
 
 def _gerar_dossie_zip(empresa):
     buf = io.BytesIO()
@@ -820,12 +748,13 @@ def _gerar_dossie_zip(empresa):
     respostas = risco.get("respostas", {})
     obs_risco = risco.get("observacoes", {})
     plano = _plano_carregar(empresa_id)
+    docs_mapa = _docs_mapa(empresa_id)
     painel, total_alto, total_medio, total_resp, nivel_geral = _calcular_painel_risco(respostas)
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("empresa.json", json.dumps(empresa, ensure_ascii=False, indent=2))
-        zf.writestr("diagnostico.json", json.dumps(diag, ensure_ascii=False, indent=2))
-        zf.writestr("diagnostico_risco.json", json.dumps(risco, ensure_ascii=False, indent=2))
-        zf.writestr("plano_5w2h.json", json.dumps(plano, ensure_ascii=False, indent=2))
+        zf.writestr("empresa.json", json.dumps(empresa, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("diagnostico.json", json.dumps(diag, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("diagnostico_risco.json", json.dumps(risco, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("plano_5w2h.json", json.dumps(plano, ensure_ascii=False, indent=2, default=str))
         linhas = [f"DOSSIÊ DE CONFORMIDADE — {empresa.get('razao_social','')}",
                   f"CNPJ: {empresa.get('cnpj') or '—'}  ·  Papel: {empresa.get('papel','—')}  ·  "
                   f"Situação: {empresa.get('situacao','—')}",
@@ -838,7 +767,7 @@ def _gerar_dossie_zip(empresa):
             linhas.append(f"\n{area['titulo']} — Alto:{p['alto']} Médio:{p['medio']} Baixo:{p['baixo']}")
             for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
                 resp = respostas.get(qid, "— não respondido —")
-                ndocs_r = _docs_contar(empresa_id, f"risco_{qid}")
+                ndocs_r = len(docs_mapa.get(f"risco_{qid}", []))
                 linhas.append(f"  [{resp}] {pergunta} ({base_legal})"
                               f"{f' — {ndocs_r} doc(s) anexado(s)' if ndocs_r else ''}")
                 if obs_risco.get(qid):
@@ -848,7 +777,7 @@ def _gerar_dossie_zip(empresa):
             linhas.append(f"\n{sec['icone']} {sec['titulo']}")
             for iid, risco_item, texto, nota in sec["itens"]:
                 marca = "[X]" if itens_estado.get(iid) else "[ ]"
-                ndocs = _docs_contar(empresa_id, iid)
+                ndocs = len(docs_mapa.get(iid, []))
                 linhas.append(f"  {marca} ({_RISK_LABEL[risco_item]}) {texto}"
                               f"{f' — {ndocs} doc(s) anexado(s)' if ndocs else ''}")
                 if obs_checklist.get(iid):
@@ -864,14 +793,13 @@ def _gerar_dossie_zip(empresa):
         zf.writestr("relatorio.txt", "\n".join(linhas))
         for sec in CONFORMIDADE_SECOES:
             for iid, risco_item, texto, nota in sec["itens"]:
-                for nome in _docs_listar(empresa_id, iid):
-                    zf.write(os.path.join(_docs_dir(empresa_id, iid), nome),
-                            arcname=f"documentos/checklist_{iid}/{nome}")
+                for nome in docs_mapa.get(iid, []):
+                    zf.writestr(f"documentos/checklist_{iid}/{nome}", db.docs_baixar(empresa_id, iid, nome))
         for area in DIAGNOSTICO_AREAS:
             for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
-                for nome in _docs_listar(empresa_id, f"risco_{qid}"):
-                    zf.write(os.path.join(_docs_dir(empresa_id, f"risco_{qid}"), nome),
-                            arcname=f"documentos/risco_{qid}/{nome}")
+                for nome in docs_mapa.get(f"risco_{qid}", []):
+                    zf.writestr(f"documentos/risco_{qid}/{nome}",
+                               db.docs_baixar(empresa_id, f"risco_{qid}", nome))
     buf.seek(0)
     return buf
 
@@ -928,17 +856,13 @@ def render_empresas_lista():
                 if not razao.strip():
                     st.error("Informe a razão social.")
                 else:
-                    novo_id = _gerar_empresa_id(cnpj, razao)
-                    empresas.append({
-                        "id": novo_id, "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
-                        "cnpj": cnpj.strip(), "papel": papel, "grupo": grupo.strip(),
+                    db.empresa_criar({
+                        "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
+                        "cnpj": cnpj.strip(), "papel": papel, "grupo_economico": grupo.strip(),
                         "cnae_principal": cnae.strip(),
-                        "data_abertura": abertura.isoformat() if abertura else "",
+                        "data_abertura": abertura.isoformat() if abertura else None,
                         "regime_tributario": regime, "situacao": "Em análise", "observacoes": obs.strip(),
-                        "criado_em": datetime.now().isoformat(timespec="seconds"),
-                        "atualizado_em": datetime.now().isoformat(timespec="seconds"),
                     })
-                    _empresas_salvar(empresas)
                     st.success(f"Empresa **{razao}** cadastrada!")
                     st.rerun()
 
@@ -951,7 +875,7 @@ def render_empresas_lista():
     for emp in empresas:
         if _filtro:
             alvo = (f"{emp['razao_social']} {emp.get('nome_fantasia','')} "
-                    f"{emp.get('cnpj','')} {emp.get('grupo','')}").lower()
+                    f"{emp.get('cnpj','')} {emp.get('grupo_economico','')}").lower()
             if _filtro.lower() not in alvo:
                 continue
         itens_estado = _diagnostico_carregar(emp["id"]).get("itens", {})
@@ -968,7 +892,7 @@ def render_empresas_lista():
                 st.markdown(f"**{emp['razao_social']}**"
                            f"{' — ' + emp['nome_fantasia'] if emp.get('nome_fantasia') else ''}")
                 st.caption(f"CNPJ: {emp.get('cnpj') or '—'}  ·  {emp.get('papel','—')}"
-                          f"{'  ·  Grupo: ' + emp['grupo'] if emp.get('grupo') else ''}")
+                          f"{'  ·  Grupo: ' + emp['grupo_economico'] if emp.get('grupo_economico') else ''}")
             with cc2:
                 st.markdown(f"<span style='font-size:11px;font-weight:800;padding:3px 10px;"
                            f"border-radius:99px;background:{_cor_sit}22;color:{_cor_sit};"
@@ -989,7 +913,6 @@ def render_empresas_lista():
 
 # ── tela 2: ficha da empresa (dados + checklist + documentos) ────────────────
 def render_empresa_ficha(empresa):
-    empresas = _empresas_carregar()
     emp_id = empresa["id"]
 
     if st.button("⬅️ Voltar à lista de empresas"):
@@ -1002,7 +925,7 @@ def render_empresa_ficha(empresa):
                f"background:{_sit_cor_h}22;color:{_sit_cor_h};border:1px solid {_sit_cor_h}55;"
                f"margin-left:12px;vertical-align:middle'>{empresa.get('situacao','—')}</span></h1>"
                f"<p>CNPJ: {empresa.get('cnpj') or '—'}  ·  {empresa.get('papel','—')}"
-               f"{'  ·  Grupo: ' + empresa['grupo'] if empresa.get('grupo') else ''}</p></div>",
+               f"{'  ·  Grupo: ' + empresa['grupo_economico'] if empresa.get('grupo_economico') else ''}</p></div>",
                 unsafe_allow_html=True)
 
     with st.expander("✏️ Editar dados cadastrais"):
@@ -1015,7 +938,7 @@ def render_empresa_ficha(empresa):
             _papel_idx = _PAPEL_OPCOES.index(empresa.get("papel")) if empresa.get("papel") in _PAPEL_OPCOES else 0
             papel = c4.selectbox("Papel no grupo", _PAPEL_OPCOES, index=_papel_idx)
             c5, c6 = st.columns(2)
-            grupo = c5.text_input("Grupo econômico", value=empresa.get("grupo", ""))
+            grupo = c5.text_input("Grupo econômico", value=empresa.get("grupo_economico", ""))
             cnae = c6.text_input("CNAE principal", value=empresa.get("cnae_principal", ""))
             _sit_idx = _SITUACAO_OPCOES.index(empresa.get("situacao")) if empresa.get("situacao") in _SITUACAO_OPCOES else 0
             situacao = st.selectbox("Situação", _SITUACAO_OPCOES, index=_sit_idx)
@@ -1024,21 +947,16 @@ def render_empresa_ficha(empresa):
             salvar = col_a.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True)
             excluir = col_b.form_submit_button("🗑️ Excluir empresa", use_container_width=True)
             if salvar:
-                for i, e in enumerate(empresas):
-                    if e["id"] == emp_id:
-                        empresas[i].update({
-                            "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
-                            "cnpj": cnpj.strip(), "papel": papel, "grupo": grupo.strip(),
-                            "cnae_principal": cnae.strip(), "situacao": situacao,
-                            "observacoes": obs.strip(),
-                            "atualizado_em": datetime.now().isoformat(timespec="seconds"),
-                        })
-                _empresas_salvar(empresas)
+                db.empresa_atualizar(emp_id, {
+                    "razao_social": razao.strip(), "nome_fantasia": fantasia.strip(),
+                    "cnpj": cnpj.strip(), "papel": papel, "grupo_economico": grupo.strip(),
+                    "cnae_principal": cnae.strip(), "situacao": situacao,
+                    "observacoes": obs.strip(),
+                })
                 st.success("Dados atualizados!")
                 st.rerun()
             if excluir:
-                empresas = [e for e in empresas if e["id"] != emp_id]
-                _empresas_salvar(empresas)
+                db.empresa_excluir(emp_id)
                 st.session_state.conf_empresa_id = None
                 st.success("Empresa excluída.")
                 st.rerun()
@@ -1054,6 +972,8 @@ def render_empresa_ficha(empresa):
         "laranja": ("#fffaf0", "#c05621", "#f6ad55"),
     }
     _nivel_cor = {"ALTO": "#c53030", "MÉDIO": "#975a16", "BAIXO": "#276749", "—": "#718096"}
+
+    docs_mapa = _docs_mapa(emp_id)  # 1 consulta só, evita N chamadas de rede por item
 
     outer_tabs = st.tabs(["🔍 Diagnóstico de Risco", "📋 Checklist Operacional", "🎯 Plano de Ação 5W2H"])
 
@@ -1103,7 +1023,11 @@ def render_empresa_ficha(empresa):
                           f"{p['respondidos']}/{len(area['perguntas'])} respondidas")
 
         if st.button("💾 Salvar diagnóstico de risco", key=f"salvar_risco_{emp_id}"):
-            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+            for _area in DIAGNOSTICO_AREAS:
+                for _qid, *_ in _area["perguntas"]:
+                    if _qid in st.session_state[risco_key] or _qid in st.session_state[risco_obs_key]:
+                        _risco_upsert(emp_id, _qid, st.session_state[risco_key].get(_qid),
+                                      st.session_state[risco_obs_key].get(_qid))
             st.success("Salvo!")
 
         st.divider()
@@ -1113,7 +1037,8 @@ def render_empresa_ficha(empresa):
             with rtab:
                 for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
                     resp_atual = st.session_state[risco_key].get(qid, "— não respondido —")
-                    _ndocs_r = _docs_contar(emp_id, f"risco_{qid}")
+                    _docs_r = docs_mapa.get(f"risco_{qid}", [])
+                    _ndocs_r = len(_docs_r)
                     if resp_atual == "Sim":
                         _prefixo = "🔴" if severidade == "alto" else "🟡"
                     elif resp_atual in ("Não", "N.A."):
@@ -1128,7 +1053,7 @@ def render_empresa_ficha(empresa):
                                              key=f"risco_{emp_id}_{qid}", label_visibility="collapsed")
                         if nova_resp != resp_atual:
                             st.session_state[risco_key][qid] = nova_resp
-                            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+                            _risco_upsert(emp_id, qid, nova_resp, st.session_state[risco_obs_key].get(qid))
                             st.rerun()
                         if nova_resp == "Sim":
                             st.markdown(f"<div style='background:#fff5f5;border:1px solid #fc8181;"
@@ -1142,17 +1067,16 @@ def render_empresa_ficha(empresa):
                                                    placeholder="Digite aqui uma observação sobre este ponto...")
                         if _nova_obs_r != _obs_atual_r:
                             st.session_state[risco_obs_key][qid] = _nova_obs_r
-                            _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
+                            _risco_upsert(emp_id, qid, st.session_state[risco_key].get(qid), _nova_obs_r)
 
                         st.markdown("**📎 Documentos anexados**")
-                        _docs_r = _docs_listar(emp_id, f"risco_{qid}")
                         if _docs_r:
                             for _d in _docs_r:
                                 _drc1, _drc2, _drc3 = st.columns([4, 1, 1])
                                 _drc1.caption(_d.split("__", 1)[-1])
-                                with open(os.path.join(_docs_dir(emp_id, f"risco_{qid}"), _d), "rb") as _fh:
-                                    _drc2.download_button("⬇️", data=_fh.read(), file_name=_d.split("__", 1)[-1],
-                                                          key=f"dlrisco_{emp_id}_{qid}_{_d}")
+                                _drc2.download_button("⬇️", data=db.docs_baixar(emp_id, f"risco_{qid}", _d),
+                                                      file_name=_d.split("__", 1)[-1],
+                                                      key=f"dlrisco_{emp_id}_{qid}_{_d}")
                                 if _drc3.button("🗑️", key=f"rmrisco_{emp_id}_{qid}_{_d}"):
                                     _docs_remover(emp_id, f"risco_{qid}", _d)
                                     st.rerun()
@@ -1171,8 +1095,6 @@ def render_empresa_ficha(empresa):
                             st.session_state[_upcnt_key_r] += 1
                             st.success(f"{len(_novo_doc_r)} arquivo(s) anexado(s)!")
                             st.rerun()
-
-        _risco_salvar(emp_id, st.session_state[risco_key], st.session_state[risco_obs_key])
 
     # ═══ ABA 2: CHECKLIST OPERACIONAL (documentos por ponto) ═══
     with outer_tabs[1]:
@@ -1199,7 +1121,10 @@ def render_empresa_ficha(empresa):
             st.progress(pct/100, text=f"Progresso do checklist — {pct}% ({total_ok}/{total_itens})")
         with ccx2:
             if st.button("💾 Salvar checklist", use_container_width=True):
-                _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+                for _sec in CONFORMIDADE_SECOES:
+                    for _iid, *_ in _sec["itens"]:
+                        _diagnostico_upsert(emp_id, _iid, st.session_state[key_state].get(_iid, False),
+                                            st.session_state[obs_key].get(_iid))
                 st.success("Salvo!")
 
         m1, m2, m3, m4 = st.columns(4)
@@ -1223,7 +1148,8 @@ def render_empresa_ficha(empresa):
                                f"⚠️ {_txt}</div>", unsafe_allow_html=True)
                 for iid, risco, texto, nota in sec["itens"]:
                     checked = st.session_state[key_state].get(iid, False)
-                    ndocs = _docs_contar(emp_id, iid)
+                    _docs = docs_mapa.get(iid, [])
+                    ndocs = len(_docs)
                     _icone_ck = "✅" if checked else "⬜"
                     _icone_doc = f" · 📎{ndocs}" if ndocs else ""
                     with st.expander(f"{_icone_ck} {texto}  ·  {_RISK_LABEL[risco]}{_icone_doc}"):
@@ -1232,7 +1158,7 @@ def render_empresa_ficha(empresa):
                         novo_check = st.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
                         if novo_check != checked:
                             st.session_state[key_state][iid] = novo_check
-                            _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+                            _diagnostico_upsert(emp_id, iid, novo_check, st.session_state[obs_key].get(iid))
                             st.rerun()
 
                         _obs_atual = st.session_state[obs_key].get(iid, "")
@@ -1240,17 +1166,16 @@ def render_empresa_ficha(empresa):
                                                  placeholder="Digite aqui uma observação sobre este ponto...")
                         if _nova_obs != _obs_atual:
                             st.session_state[obs_key][iid] = _nova_obs
-                            _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
+                            _diagnostico_upsert(emp_id, iid, st.session_state[key_state].get(iid, False), _nova_obs)
 
                         st.markdown("**📎 Documentos anexados**")
-                        _docs = _docs_listar(emp_id, iid)
                         if _docs:
                             for _d in _docs:
                                 _dc1, _dc2, _dc3 = st.columns([4, 1, 1])
                                 _dc1.caption(_d.split("__", 1)[-1])
-                                with open(os.path.join(_docs_dir(emp_id, iid), _d), "rb") as _fh:
-                                    _dc2.download_button("⬇️", data=_fh.read(), file_name=_d.split("__", 1)[-1],
-                                                         key=f"dl_{emp_id}_{iid}_{_d}")
+                                _dc2.download_button("⬇️", data=db.docs_baixar(emp_id, iid, _d),
+                                                     file_name=_d.split("__", 1)[-1],
+                                                     key=f"dl_{emp_id}_{iid}_{_d}")
                                 if _dc3.button("🗑️", key=f"rm_{emp_id}_{iid}_{_d}"):
                                     _docs_remover(emp_id, iid, _d)
                                     st.rerun()
@@ -1269,8 +1194,6 @@ def render_empresa_ficha(empresa):
                             st.session_state[_upcnt_key] += 1
                             st.success(f"{len(_novo_doc)} arquivo(s) anexado(s)!")
                             st.rerun()
-
-        _diagnostico_salvar(emp_id, st.session_state[key_state], st.session_state[obs_key])
 
     # ═══ ABA 3: PLANO DE AÇÃO 5W2H ═══
     _PRIORIDADE_OPCOES = ["Altíssima", "Alta", "Média", "Baixa"]
@@ -1304,14 +1227,14 @@ def render_empresa_ficha(empresa):
             if not _plano:
                 if st.button("📥 Carregar modelo padrão (10 ações)", key=f"modelo_5w2h_{emp_id}",
                             use_container_width=True):
-                    st.session_state[plano_key] = [dict(x) for x in PLANO_5W2H_MODELO]
-                    _plano_salvar(emp_id, st.session_state[plano_key])
+                    db.plano_inserir_lote(emp_id, PLANO_5W2H_MODELO)
+                    st.session_state[plano_key] = _plano_carregar(emp_id)
                     st.rerun()
         with pbtn2:
             if _plano:
                 if st.button("🗑️ Limpar plano", key=f"limpar_5w2h_{emp_id}", use_container_width=True):
+                    db.plano_limpar(emp_id)
                     st.session_state[plano_key] = []
-                    _plano_salvar(emp_id, [])
                     st.rerun()
 
         st.divider()
@@ -1331,14 +1254,14 @@ def render_empresa_ficha(empresa):
                 nova_prioridade = fc7.selectbox("Prioridade", _PRIORIDADE_OPCOES)
                 if st.form_submit_button("Adicionar ação", type="primary", use_container_width=True):
                     if novo_oque.strip():
-                        st.session_state[plano_key].append({
+                        db.plano_inserir(emp_id, {
                             "o_que": novo_oque.strip(), "por_que": novo_porque.strip(),
                             "onde": novo_onde.strip(), "quando": novo_quando.strip(),
                             "quem": novo_quem.strip(), "como": novo_como.strip(),
                             "quanto_custa": novo_custo.strip(), "prioridade": nova_prioridade,
                             "status": "Pendente",
                         })
-                        _plano_salvar(emp_id, st.session_state[plano_key])
+                        st.session_state[plano_key] = _plano_carregar(emp_id)
                         st.rerun()
                     else:
                         st.error("Preencha ao menos o campo 'O quê'.")
@@ -1346,7 +1269,8 @@ def render_empresa_ficha(empresa):
         if not _plano:
             st.info("Nenhuma ação cadastrada ainda. Use o formulário acima ou carregue o modelo padrão.")
 
-        for idx, acao in enumerate(_plano):
+        for acao in _plano:
+            _acao_id = acao["id"]
             with st.container(border=True):
                 top1, top2, top3 = st.columns([5, 3, 1])
                 with top1:
@@ -1362,9 +1286,9 @@ def render_empresa_ficha(empresa):
                         f"background:{_scor}22;color:{_scor};border:1px solid {_scor}55'>"
                         f"{acao.get('status','Pendente')}</span>", unsafe_allow_html=True)
                 with top3:
-                    if st.button("🗑️", key=f"del_acao_{emp_id}_{idx}"):
-                        st.session_state[plano_key].pop(idx)
-                        _plano_salvar(emp_id, st.session_state[plano_key])
+                    if st.button("🗑️", key=f"del_acao_{emp_id}_{_acao_id}"):
+                        db.plano_remover(_acao_id)
+                        st.session_state[plano_key] = _plano_carregar(emp_id)
                         st.rerun()
 
                 if acao.get("por_que"):
@@ -1381,7 +1305,7 @@ def render_empresa_ficha(empresa):
                                f"{acao['como']}</div>", unsafe_allow_html=True)
 
                 with st.expander("✏️ Editar / mudar status"):
-                    with st.form(f"form_edit_acao_{emp_id}_{idx}"):
+                    with st.form(f"form_edit_acao_{emp_id}_{_acao_id}"):
                         e_oque = st.text_input("O quê", value=acao.get("o_que", ""))
                         ec1, ec2 = st.columns(2)
                         e_porque = ec1.text_area("Por quê", value=acao.get("por_que", ""), height=80)
@@ -1399,12 +1323,12 @@ def render_empresa_ficha(empresa):
                             if acao.get("status") in _STATUS_OPCOES else 0
                         e_status = ec8.selectbox("Status", _STATUS_OPCOES, index=_status_idx)
                         if st.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True):
-                            st.session_state[plano_key][idx] = {
+                            db.plano_atualizar(_acao_id, {
                                 "o_que": e_oque.strip(), "por_que": e_porque.strip(), "onde": e_onde.strip(),
                                 "quando": e_quando.strip(), "quem": e_quem.strip(), "como": e_como.strip(),
                                 "quanto_custa": e_custo.strip(), "prioridade": e_prio, "status": e_status,
-                            }
-                            _plano_salvar(emp_id, st.session_state[plano_key])
+                            })
+                            st.session_state[plano_key] = _plano_carregar(emp_id)
                             st.success("Ação atualizada!")
                             st.rerun()
 
