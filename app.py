@@ -733,7 +733,11 @@ def _docs_mapa(empresa_id):
     return db.docs_listar_mapa(empresa_id)
 
 def _docs_salvar(empresa_id, item_id, arquivo):
-    db.docs_salvar(empresa_id, item_id, arquivo, datetime.now().strftime("%Y%m%d%H%M%S"))
+    try:
+        db.docs_salvar(empresa_id, item_id, arquivo, datetime.now().strftime("%Y%m%d%H%M%S%f"))
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
 def _docs_remover(empresa_id, item_id, nome):
     db.docs_remover(empresa_id, item_id, nome)
@@ -1092,10 +1096,18 @@ def render_empresa_ficha(empresa):
                             "Anexar documento", key=f"uprisco_{emp_id}_{qid}_{st.session_state[_upcnt_key_r]}",
                             accept_multiple_files=True, label_visibility="collapsed")
                         if _novo_doc_r:
+                            _ok_r, _falhas_r = 0, []
                             for _arq in _novo_doc_r:
-                                _docs_salvar(emp_id, f"risco_{qid}", _arq)
+                                _sucesso, _erro = _docs_salvar(emp_id, f"risco_{qid}", _arq)
+                                if _sucesso:
+                                    _ok_r += 1
+                                else:
+                                    _falhas_r.append((_arq.name, _erro))
                             st.session_state[_upcnt_key_r] += 1
-                            st.success(f"{len(_novo_doc_r)} arquivo(s) anexado(s)!")
+                            if _ok_r:
+                                st.success(f"{_ok_r} arquivo(s) anexado(s)!")
+                            for _fn, _err in _falhas_r:
+                                st.error(f"Falha ao anexar **{_fn}**: {_err}")
                             st.rerun()
 
     # ═══ ABA 2: CHECKLIST OPERACIONAL (documentos por ponto) ═══
@@ -1214,10 +1226,18 @@ def render_empresa_ficha(empresa):
                             "Anexar documento", key=f"up_{emp_id}_{iid}_{st.session_state[_upcnt_key]}",
                             accept_multiple_files=True, label_visibility="collapsed")
                         if _novo_doc:
+                            _ok, _falhas = 0, []
                             for _arq in _novo_doc:
-                                _docs_salvar(emp_id, iid, _arq)
+                                _sucesso, _erro = _docs_salvar(emp_id, iid, _arq)
+                                if _sucesso:
+                                    _ok += 1
+                                else:
+                                    _falhas.append((_arq.name, _erro))
                             st.session_state[_upcnt_key] += 1
-                            st.success(f"{len(_novo_doc)} arquivo(s) anexado(s)!")
+                            if _ok:
+                                st.success(f"{_ok} arquivo(s) anexado(s)!")
+                            for _fn, _err in _falhas:
+                                st.error(f"Falha ao anexar **{_fn}**: {_err}")
                             st.rerun()
 
     # ═══ ABA 3: PLANO DE AÇÃO 5W2H ═══

@@ -144,7 +144,8 @@ def docs_salvar(empresa_id, contexto, arquivo, timestamp):
     caminho = f"{_doc_prefix(empresa_id, contexto)}/{nome}"
     conteudo = arquivo.getbuffer().tobytes()
     c.storage.from_(BUCKET_DOCS).upload(caminho, conteudo,
-                                        {"content-type": arquivo.type or "application/octet-stream"})
+                                        {"content-type": arquivo.type or "application/octet-stream",
+                                         "upsert": "true"})
     c.table("documentos").insert({
         "empresa_id": empresa_id, "contexto": contexto, "nome_original": nome,
         "storage_path": caminho, "tamanho_bytes": len(conteudo),
