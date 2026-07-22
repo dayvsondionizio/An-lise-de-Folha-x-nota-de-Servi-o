@@ -175,8 +175,8 @@ def simulacao_salvar(empresa_id, dados):
 def simulacoes_listar(empresa_id):
     c = get_client()
     r = c.table("simulacoes_pgdas").select("*").eq("empresa_id", empresa_id)\
-        .order("criado_em", desc=True).execute()
-    return r.data or []
+        .order("criado_em").execute()
+    return list(reversed(r.data or []))
 
 
 def simulacao_remover(row_id):
@@ -201,8 +201,8 @@ def analise_salvar(empresa_id, dados, arquivo=None):
 def analises_listar(empresa_id):
     c = get_client()
     r = c.table("analises_folha").select("*").eq("empresa_id", empresa_id)\
-        .order("criado_em", desc=True).execute()
-    return r.data or []
+        .order("criado_em").execute()
+    return list(reversed(r.data or []))
 
 
 def analise_remover(row_id, arquivo_origem_path=None):
