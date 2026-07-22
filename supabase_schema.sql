@@ -137,3 +137,8 @@ alter default privileges in schema esocial_dashboard
 -- Nada neste script toca no schema "public" nem em qualquer tabela/bucket
 -- que já exista — é 100% aditivo e isolado.
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ADIÇÃO: status "Pendente" no checklist operacional (laranja, visível)
+-- ═══════════════════════════════════════════════════════════════════════════
+alter table esocial_dashboard.checklist_respostas add column if not exists pendente boolean default false;

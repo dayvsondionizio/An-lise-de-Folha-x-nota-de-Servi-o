@@ -57,15 +57,16 @@ def checklist_carregar(empresa_id):
     c = get_client()
     r = c.table("checklist_respostas").select("*").eq("empresa_id", empresa_id).execute()
     itens = {row["item_id"]: row["verificado"] for row in (r.data or [])}
+    pendentes = {row["item_id"]: row.get("pendente", False) for row in (r.data or [])}
     observacoes = {row["item_id"]: row["observacao"] for row in (r.data or []) if row.get("observacao")}
-    return itens, observacoes
+    return itens, observacoes, pendentes
 
 
-def checklist_upsert_item(empresa_id, item_id, verificado, observacao):
+def checklist_upsert_item(empresa_id, item_id, verificado, observacao, pendente=False):
     c = get_client()
     c.table("checklist_respostas").upsert({
         "empresa_id": empresa_id, "item_id": item_id,
-        "verificado": verificado, "observacao": observacao or None,
+        "verificado": verificado, "observacao": observacao or None, "pendente": pendente,
     }, on_conflict="empresa_id,item_id").execute()
 
 

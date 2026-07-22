@@ -676,11 +676,11 @@ def _empresas_carregar():
     return db.empresas_listar()
 
 def _diagnostico_carregar(empresa_id):
-    itens, observacoes = db.checklist_carregar(empresa_id)
-    return {"itens": itens, "observacoes": observacoes}
+    itens, observacoes, pendentes = db.checklist_carregar(empresa_id)
+    return {"itens": itens, "observacoes": observacoes, "pendentes": pendentes}
 
-def _diagnostico_upsert(empresa_id, item_id, verificado, observacao):
-    db.checklist_upsert_item(empresa_id, item_id, verificado, observacao)
+def _diagnostico_upsert(empresa_id, item_id, verificado, observacao, pendente=False):
+    db.checklist_upsert_item(empresa_id, item_id, verificado, observacao, pendente)
 
 def _risco_carregar(empresa_id):
     respostas, observacoes = db.risco_carregar(empresa_id)
@@ -744,6 +744,7 @@ def _gerar_dossie_zip(empresa):
     diag = _diagnostico_carregar(empresa_id)
     itens_estado = diag.get("itens", {})
     obs_checklist = diag.get("observacoes", {})
+    pend_checklist = diag.get("pendentes", {})
     risco = _risco_carregar(empresa_id)
     respostas = risco.get("respostas", {})
     obs_risco = risco.get("observacoes", {})
@@ -776,7 +777,7 @@ def _gerar_dossie_zip(empresa):
         for sec in CONFORMIDADE_SECOES:
             linhas.append(f"\n{sec['icone']} {sec['titulo']}")
             for iid, risco_item, texto, nota in sec["itens"]:
-                marca = "[X]" if itens_estado.get(iid) else "[ ]"
+                marca = "[PENDENTE]" if pend_checklist.get(iid) else ("[X]" if itens_estado.get(iid) else "[ ]")
                 ndocs = len(docs_mapa.get(iid, []))
                 linhas.append(f"  {marca} ({_RISK_LABEL[risco_item]}) {texto}"
                               f"{f' — {ndocs} doc(s) anexado(s)' if ndocs else ''}")
@@ -1101,10 +1102,12 @@ def render_empresa_ficha(empresa):
     with outer_tabs[1]:
         key_state = f"conf_state_{emp_id}"
         obs_key = f"conf_obs_state_{emp_id}"
+        pend_key = f"conf_pend_state_{emp_id}"
         if key_state not in st.session_state:
             _diag_carregado = _diagnostico_carregar(emp_id)
             st.session_state[key_state] = _diag_carregado.get("itens", {})
             st.session_state[obs_key] = _diag_carregado.get("observacoes", {})
+            st.session_state[pend_key] = _diag_carregado.get("pendentes", {})
 
         total_itens, total_ok = 0, 0
         pend = {"critico": [], "alto": [], "medio": []}
@@ -1125,14 +1128,17 @@ def render_empresa_ficha(empresa):
                 for _sec in CONFORMIDADE_SECOES:
                     for _iid, *_ in _sec["itens"]:
                         _diagnostico_upsert(emp_id, _iid, st.session_state[key_state].get(_iid, False),
-                                            st.session_state[obs_key].get(_iid))
+                                            st.session_state[obs_key].get(_iid),
+                                            st.session_state[pend_key].get(_iid, False))
                 st.success("Salvo!")
 
-        m1, m2, m3, m4 = st.columns(4)
+        _n_marcados_pendente = sum(1 for v in st.session_state[pend_key].values() if v)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("🔴 Crítico pendente", len(pend["critico"]))
         m2.metric("🟠 Alto pendente", len(pend["alto"]))
         m3.metric("🟡 Médio pendente", len(pend["medio"]))
         m4.metric("✅ Verificados", total_ok)
+        m5.metric("🟧 Marcados como pendente", _n_marcados_pendente)
 
         st.divider()
 
@@ -1149,17 +1155,34 @@ def render_empresa_ficha(empresa):
                                f"⚠️ {_txt}</div>", unsafe_allow_html=True)
                 for iid, risco, texto, nota in sec["itens"]:
                     checked = st.session_state[key_state].get(iid, False)
+                    pendente_flag = st.session_state[pend_key].get(iid, False)
                     _docs = docs_mapa.get(iid, [])
                     ndocs = len(_docs)
-                    _icone_ck = "✅" if checked else "⬜"
+                    if pendente_flag:
+                        _icone_ck = "🟧"
+                    elif checked:
+                        _icone_ck = "✅"
+                    else:
+                        _icone_ck = "⬜"
                     _icone_doc = f" · 📎{ndocs}" if ndocs else ""
                     with st.expander(f"{_icone_ck} {texto}  ·  {_RISK_LABEL[risco]}{_icone_doc}"):
                         if nota:
                             st.caption(nota)
-                        novo_check = st.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
-                        if novo_check != checked:
+                        cchk1, cchk2 = st.columns(2)
+                        novo_check = cchk1.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
+                        novo_pendente = cchk2.checkbox("🟧 Pendente", value=pendente_flag,
+                                                       key=f"pend_{emp_id}_{iid}",
+                                                       help="Marque quando já foi analisado mas ainda "
+                                                            "precisa de ação — fica visível em laranja.")
+                        if novo_pendente and not pendente_flag:
+                            novo_check = False   # pendente e verificado são mutuamente exclusivos
+                        elif novo_check and not checked:
+                            novo_pendente = False
+                        if novo_check != checked or novo_pendente != pendente_flag:
                             st.session_state[key_state][iid] = novo_check
-                            _diagnostico_upsert(emp_id, iid, novo_check, st.session_state[obs_key].get(iid))
+                            st.session_state[pend_key][iid] = novo_pendente
+                            _diagnostico_upsert(emp_id, iid, novo_check,
+                                                st.session_state[obs_key].get(iid), novo_pendente)
                             st.rerun()
 
                         _obs_atual = st.session_state[obs_key].get(iid, "")
@@ -1167,7 +1190,8 @@ def render_empresa_ficha(empresa):
                                                  placeholder="Digite aqui uma observação sobre este ponto...")
                         if _nova_obs != _obs_atual:
                             st.session_state[obs_key][iid] = _nova_obs
-                            _diagnostico_upsert(emp_id, iid, st.session_state[key_state].get(iid, False), _nova_obs)
+                            _diagnostico_upsert(emp_id, iid, st.session_state[key_state].get(iid, False),
+                                                _nova_obs, st.session_state[pend_key].get(iid, False))
 
                         st.markdown("**📎 Documentos anexados**")
                         if _docs:
