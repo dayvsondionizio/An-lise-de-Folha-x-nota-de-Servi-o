@@ -162,3 +162,59 @@ def docs_remover(empresa_id, contexto, nome):
     c.storage.from_(BUCKET_DOCS).remove([caminho])
     c.table("documentos").delete().eq("empresa_id", empresa_id).eq("contexto", contexto)\
         .eq("nome_original", nome).execute()
+
+
+# ── SIMULAÇÕES PGDAS (sempre vinculadas a uma empresa — feitas de dentro da ficha) ──
+def simulacao_salvar(empresa_id, dados):
+    c = get_client()
+    dados = dict(dados, empresa_id=empresa_id)
+    r = c.table("simulacoes_pgdas").insert(dados).execute()
+    return r.data[0]
+
+
+def simulacoes_listar(empresa_id):
+    c = get_client()
+    r = c.table("simulacoes_pgdas").select("*").eq("empresa_id", empresa_id)\
+        .order("criado_em", desc=True).execute()
+    return r.data or []
+
+
+def simulacao_remover(row_id):
+    c = get_client()
+    c.table("simulacoes_pgdas").delete().eq("id", row_id).execute()
+
+
+# ── ANÁLISES DE FOLHA (sempre vinculadas a uma empresa) ──────────────────────
+def analise_salvar(empresa_id, dados, arquivo=None):
+    c = get_client()
+    dados = dict(dados, empresa_id=empresa_id)
+    if arquivo is not None:
+        timestamp = dados.pop("_timestamp")
+        caminho = f"{empresa_id}/{timestamp}__{arquivo.name}"
+        c.storage.from_(BUCKET_FOLHA).upload(caminho, arquivo.getbuffer().tobytes(),
+                                             {"content-type": "application/octet-stream"})
+        dados["arquivo_origem_path"] = caminho
+    r = c.table("analises_folha").insert(dados).execute()
+    return r.data[0]
+
+
+def analises_listar(empresa_id):
+    c = get_client()
+    r = c.table("analises_folha").select("*").eq("empresa_id", empresa_id)\
+        .order("criado_em", desc=True).execute()
+    return r.data or []
+
+
+def analise_remover(row_id, arquivo_origem_path=None):
+    c = get_client()
+    if arquivo_origem_path:
+        try:
+            c.storage.from_(BUCKET_FOLHA).remove([arquivo_origem_path])
+        except Exception:
+            pass
+    c.table("analises_folha").delete().eq("id", row_id).execute()
+
+
+def analise_baixar_arquivo(caminho):
+    c = get_client()
+    return c.storage.from_(BUCKET_FOLHA).download(caminho)

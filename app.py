@@ -975,7 +975,8 @@ def render_empresa_ficha(empresa):
 
     docs_mapa = _docs_mapa(emp_id)  # 1 consulta só, evita N chamadas de rede por item
 
-    outer_tabs = st.tabs(["🔍 Diagnóstico de Risco", "📋 Checklist Operacional", "🎯 Plano de Ação 5W2H"])
+    outer_tabs = st.tabs(["🔍 Diagnóstico de Risco", "📋 Checklist Operacional", "🎯 Plano de Ação 5W2H",
+                         "📊 Simulações & Análises"])
 
     # ═══ ABA 1: DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ═══
     with outer_tabs[0]:
@@ -1331,6 +1332,151 @@ def render_empresa_ficha(empresa):
                             st.session_state[plano_key] = _plano_carregar(emp_id)
                             st.success("Ação atualizada!")
                             st.rerun()
+
+    # ═══ ABA 4: SIMULAÇÕES & ANÁLISES (sempre vinculadas a esta empresa) ═══
+    with outer_tabs[3]:
+        st.caption("Feitas aqui dentro da ficha, simulações e análises ficam automaticamente "
+                  "vinculadas a esta empresa e salvas no histórico abaixo. O Simulador e a Análise "
+                  "de Folha do menu principal continuam avulsos — nada lá é salvo.")
+
+        sub_sim, sub_an = st.tabs(["🎯 Nova simulação PGDAS", "📈 Nova análise de folha"])
+
+        with sub_sim:
+            with st.form(f"form_sim_{emp_id}", clear_on_submit=False):
+                fsc1, fsc2 = st.columns(2)
+                _competencia = fsc1.text_input("Competência (AAAA-MM)", placeholder="Ex.: 2026-06")
+                _aliq_sim = fsc2.number_input("Alíquota DAS (%)", min_value=0.0, max_value=30.0,
+                                              value=11.0, step=0.1)
+                fsc3, fsc4 = st.columns(2)
+                _folha_txt = fsc3.text_input("Folha bruta (R$)", placeholder="Ex.: 175.000,00")
+                _fgts_txt = fsc4.text_input("FGTS (R$)", placeholder="Ex.: 13.846,00")
+                fsc5, fsc6 = st.columns(2)
+                _margem_sim = fsc5.number_input("Margem (%)", min_value=0.0, max_value=50.0,
+                                                value=10.0, step=1.0)
+                _desp_txt = fsc6.text_input("Despesas gerais (R$)", placeholder="Ex.: 8.000,00")
+                _cpp_pct = st.number_input("CPP dentro do DAS (%, opcional)", min_value=0.0,
+                                           max_value=100.0, value=0.0, step=1.0,
+                                           help="Percentual do DAS que é CPP — vem do PGDAS anterior, se souber.")
+                _calcular_sim = st.form_submit_button("Calcular", type="primary", use_container_width=True)
+
+            if _calcular_sim:
+                _folha_v = parse_brl_in(_folha_txt)
+                _fgts_v = parse_brl_in(_fgts_txt)
+                _desp_v = parse_brl_in(_desp_txt)
+                _div_sim = 1 - _aliq_sim/100 - _margem_sim/100
+                if _div_sim <= 0:
+                    st.warning("Alíquota + margem somam 100% ou mais — ajuste os valores.")
+                elif _folha_v <= 0 and _fgts_v <= 0:
+                    st.warning("Informe ao menos a folha bruta ou o FGTS.")
+                else:
+                    _nota_sim = (_folha_v + _fgts_v + _desp_v) / _div_sim
+                    _das_sim = _nota_sim * _aliq_sim/100
+                    _cpp_sim = _das_sim * _cpp_pct/100 if _cpp_pct else None
+                    st.session_state[f"sim_calc_{emp_id}"] = {
+                        "competencia": _competencia.strip() or None, "folha_bruta": _folha_v,
+                        "fgts": _fgts_v, "margem_seguranca": _margem_sim, "despesas_gerais": _desp_v,
+                        "nota_a_emitir": round(_nota_sim, 2), "das_estimado": round(_das_sim, 2),
+                        "cpp_estimado": round(_cpp_sim, 2) if _cpp_sim else None,
+                        "aliquota_efetiva": _aliq_sim,
+                    }
+
+            _sc = st.session_state.get(f"sim_calc_{emp_id}")
+            if _sc:
+                st.divider()
+                scc = st.columns(3)
+                kpi(scc[0], brl(_sc["nota_a_emitir"]), "NOTA A EMITIR", "", "n")
+                kpi(scc[1], brl(_sc["das_estimado"]), "DAS estimado", "", "n")
+                kpi(scc[2], brl(_sc["cpp_estimado"]) if _sc["cpp_estimado"] else "—", "CPP estimado", "", "n")
+                if st.button("💾 Salvar simulação", key=f"salvar_sim_{emp_id}", type="primary",
+                            use_container_width=True):
+                    db.simulacao_salvar(emp_id, _sc)
+                    del st.session_state[f"sim_calc_{emp_id}"]
+                    st.success("Simulação salva no histórico desta empresa!")
+                    st.rerun()
+
+        with sub_an:
+            st.caption("Anexe o ZIP/XML do eSocial desta empresa para gerar um resumo e salvar no histórico.")
+            _an_arquivos = st.file_uploader("Arquivos do eSocial (ZIP ou XML)", type=["zip", "xml"],
+                                            accept_multiple_files=True, key=f"an_up_{emp_id}")
+            if st.button("📊 Processar e ver resumo", key=f"an_proc_{emp_id}", use_container_width=True):
+                if not _an_arquivos:
+                    st.error("Anexe ao menos um arquivo.")
+                else:
+                    with st.spinner("Lendo eventos do eSocial..."):
+                        _dtmp = ep.carregar(_an_arquivos)
+                    _rem_t = _dtmp["bases_fgts"]; _inss_t = _dtmp["bases_inss"]; _pag_t = _dtmp["pagamentos"]
+                    _comps_t = sorted(set(_rem_t["per_apur"].dropna().unique()) |
+                                      set(_inss_t["per_apur"].dropna().unique())) \
+                        if (not _rem_t.empty or not _inss_t.empty) else []
+                    _headcount_t = int(_inss_t["cpf"].nunique()) if not _inss_t.empty else 0
+                    _remun_t = float(pd.to_numeric(_rem_t["base_fgts"], errors="coerce").sum()) \
+                        if not _rem_t.empty else 0.0
+                    _fgts_t = float(pd.to_numeric(_rem_t["deposito_fgts"], errors="coerce").sum()) \
+                        if not _rem_t.empty else 0.0
+                    _liquido_t = float(pd.to_numeric(_pag_t["vr_liquido"], errors="coerce").sum()) \
+                        if not _pag_t.empty else 0.0
+                    st.session_state[f"an_resumo_{emp_id}"] = {
+                        "competencias": _comps_t, "headcount": _headcount_t,
+                        "remuneracao_total": _remun_t, "fgts_total": _fgts_t,
+                        "liquido_pago_total": _liquido_t,
+                    }
+                    st.session_state[f"an_arquivo_{emp_id}"] = _an_arquivos[0]
+
+            _ar = st.session_state.get(f"an_resumo_{emp_id}")
+            if _ar:
+                st.divider()
+                st.markdown("##### Resumo da folha")
+                am1, am2, am3 = st.columns(3)
+                am1.metric("👥 Funcionários", _ar["headcount"])
+                am2.metric("💰 Remuneração total", brl(_ar["remuneracao_total"]))
+                am3.metric("💵 Líquido pago", brl(_ar["liquido_pago_total"]))
+                st.caption(f"Competências: {', '.join(_ar['competencias']) if _ar['competencias'] else '—'}")
+                if st.button("💾 Salvar esta análise", key=f"salvar_an_{emp_id}", type="primary",
+                            use_container_width=True):
+                    _comps_list = _ar["competencias"]
+                    db.analise_salvar(emp_id, {
+                        "competencia_inicio": _comps_list[0] if _comps_list else None,
+                        "competencia_fim": _comps_list[-1] if _comps_list else None,
+                        "resumo": _ar, "_timestamp": datetime.now().strftime("%Y%m%d%H%M%S"),
+                    }, arquivo=st.session_state.get(f"an_arquivo_{emp_id}"))
+                    del st.session_state[f"an_resumo_{emp_id}"]
+                    st.success("Análise salva no histórico desta empresa!")
+                    st.rerun()
+
+        st.divider()
+        st.markdown("##### 🗂️ Histórico desta empresa")
+        _hist_sims = db.simulacoes_listar(emp_id)
+        _hist_ans = db.analises_listar(emp_id)
+        if not _hist_sims and not _hist_ans:
+            st.caption("Nenhuma simulação ou análise salva ainda.")
+        else:
+            if _hist_sims:
+                st.markdown("**Simulações PGDAS**")
+                for s in _hist_sims:
+                    hs1, hs2, hs3 = st.columns([3, 2, 1])
+                    hs1.write(f"{s.get('competencia') or '—'} — Nota: {brl(s.get('nota_a_emitir') or 0)}")
+                    _hs_cap = f"DAS: {brl(s.get('das_estimado') or 0)}"
+                    if s.get("cpp_estimado"):
+                        _hs_cap += f" · CPP: {brl(s['cpp_estimado'])}"
+                    hs2.caption(_hs_cap)
+                    if hs3.button("🗑️", key=f"del_sim_{s['id']}"):
+                        db.simulacao_remover(s["id"])
+                        st.rerun()
+            if _hist_ans:
+                st.markdown("**Análises de Folha**")
+                for a in _hist_ans:
+                    ha1, ha2, ha3, ha4 = st.columns([3, 2, 1, 1])
+                    _r = a.get("resumo") or {}
+                    ha1.write(f"{a.get('competencia_inicio') or '—'} a {a.get('competencia_fim') or '—'} "
+                             f"— {_r.get('headcount', '—')} func.")
+                    ha2.caption(f"Remuneração: {brl(_r.get('remuneracao_total') or 0)}")
+                    if a.get("arquivo_origem_path"):
+                        ha3.download_button("⬇️", data=db.analise_baixar_arquivo(a["arquivo_origem_path"]),
+                                           file_name=a["arquivo_origem_path"].split("/")[-1],
+                                           key=f"dl_an_{a['id']}")
+                    if ha4.button("🗑️", key=f"del_an_{a['id']}"):
+                        db.analise_remover(a["id"], a.get("arquivo_origem_path"))
+                        st.rerun()
 
     st.divider()
     st.markdown("<div style='background:rgba(0,0,0,.03);border-radius:10px;padding:14px 18px;"
