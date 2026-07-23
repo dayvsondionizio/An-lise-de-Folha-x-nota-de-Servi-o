@@ -8,6 +8,7 @@ from urllib.parse import quote as _urlquote
 from datetime import date, datetime
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import esocial_parser as ep
 import relatorio_pdf as rpdf
@@ -132,6 +133,29 @@ hr { margin:1.1rem 0; }
        box-shadow:0 2px 10px rgba(16,40,80,.04); }
 </style>
 """, unsafe_allow_html=True)
+
+# Enter dentro de um st.form não deve enviar o formulário sem querer — só o
+# clique em "Salvar" deve enviar. Tab continua navegando entre campos normalmente.
+components.html("""
+<script>
+(function() {
+  try {
+    var doc = window.parent.document;
+    if (doc.__enterNoSubmitInstalled) return;
+    doc.__enterNoSubmitInstalled = true;
+    doc.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      var target = e.target;
+      if (target.tagName === 'TEXTAREA') return;
+      if (target.closest('[data-testid="stForm"]')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
+  } catch (err) {}
+})();
+</script>
+""", height=0)
 
 MESES = {"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun",
          "07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"}
