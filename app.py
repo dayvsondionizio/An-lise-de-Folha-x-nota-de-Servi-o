@@ -1621,6 +1621,16 @@ def _render_orientacao_admissao(empresa, emp_id):
                            use_container_width=True)
 
 # ── DRE GERENCIAL — a prestadora se sustenta com receita própria? ────────────
+_MES_NOMES = list(MESES_F.values())  # Janeiro..Dezembro, na ordem
+
+
+def _dre_upsert_campo(emp_id, r, **campos):
+    """Atualiza só os campos passados, preservando o resto do registro."""
+    _dados = dict(r)
+    _dados.update(campos)
+    db.dre_upsert(emp_id, r["competencia"], _dados)
+
+
 def _render_dre_gerencial(empresa, emp_id):
     st.caption("DRE gerencial simplificada da prestadora, por competência — para acompanhar se ela se "
               "sustenta com receita própria de serviço ou depende de repasses/transferências do "
@@ -1646,11 +1656,11 @@ def _render_dre_gerencial(empresa, emp_id):
         if _ultimo_resultado < 0:
             st.markdown("<div style='background:#fff5f5;border:1px solid #fc8181;color:#c53030;"
                        "border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px'>"
-                       f"🔴 A prestadora fechou <b>{_ultimo['competencia']}</b> com resultado negativo "
-                       f"({brl(_ultimo_resultado)}) — sinal de que não se sustenta com receita própria. "
-                       "Reforça o risco de confusão patrimonial/dependência do tomador (ver Checklist "
-                       "Operacional, seção 6 — Autonomia Financeira da Prestadora).</div>",
-                       unsafe_allow_html=True)
+                       f"🔴 A prestadora fechou <b>{fper(_ultimo['competencia'], full=True)}</b> com "
+                       f"resultado negativo ({brl(_ultimo_resultado)}) — sinal de que não se sustenta "
+                       "com receita própria. Reforça o risco de confusão patrimonial/dependência do "
+                       "tomador (ver Checklist Operacional, seção 6 — Autonomia Financeira da "
+                       "Prestadora).</div>", unsafe_allow_html=True)
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Receita acumulada", brl(_tot_receita))
@@ -1662,26 +1672,28 @@ def _render_dre_gerencial(empresa, emp_id):
     with st.expander("➕ Nova competência", expanded=not registros):
         with st.form(f"form_dre_{emp_id}", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            competencia = c1.text_input("Competência", placeholder="Ex.: 2026-07")
-            receita = c2.number_input("Receita de serviço (nota emitida)", min_value=0.0,
-                                      step=100.0, format="%.2f")
+            mes_nome = c1.selectbox("Mês", _MES_NOMES, index=date.today().month - 1)
+            ano = c2.number_input("Ano", min_value=2015, max_value=2100, step=1,
+                                  value=date.today().year)
             c3, c4 = st.columns(2)
-            desp_pessoal = c3.number_input("Despesa de pessoal (folha + encargos)", min_value=0.0,
+            receita = c3.number_input("Receita de serviço (nota emitida)", min_value=0.0,
+                                      step=100.0, format="%.2f")
+            desp_pessoal = c4.number_input("Despesa de pessoal (folha + encargos)", min_value=0.0,
                                            step=100.0, format="%.2f")
-            desp_geral = c4.number_input("Outras despesas gerais", min_value=0.0, step=100.0, format="%.2f")
             obs = st.text_area("Observação", placeholder="Ex.: recebeu transferência da tomadora "
                                                           "para cobrir caixa negativo")
+            st.caption("As demais despesas (aluguel, contador, energia...) são lançadas item a item "
+                      "depois de criar a competência, dentro do próprio card dela.")
             if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
-                if competencia.strip():
-                    db.dre_upsert(emp_id, competencia.strip(), {
-                        "receita_servico": receita, "despesa_pessoal": desp_pessoal,
-                        "despesa_geral": desp_geral, "observacao": obs.strip(),
-                    })
-                    st.session_state[dre_key] = db.dre_listar(emp_id)
-                    st.success("Salvo!")
-                    st.rerun()
-                else:
-                    st.error("Informe a competência (ex.: 2026-07).")
+                _mes_num = _MES_NOMES.index(mes_nome) + 1
+                _competencia = f"{int(ano):04d}-{_mes_num:02d}"
+                db.dre_upsert(emp_id, _competencia, {
+                    "receita_servico": receita, "despesa_pessoal": desp_pessoal,
+                    "despesa_geral": 0.0, "despesas_detalhadas": [], "observacao": obs.strip(),
+                })
+                st.session_state[dre_key] = db.dre_listar(emp_id)
+                st.success("Salvo!")
+                st.rerun()
 
     if not registros:
         st.info("Nenhuma competência lançada ainda.")
@@ -1694,24 +1706,109 @@ def _render_dre_gerencial(empresa, emp_id):
         resultado = receita - pessoal - geral
         margem = round(100 * resultado / receita, 1) if receita else None
         _cor = "#276749" if resultado >= 0 else "#c53030"
-        with st.container(border=True):
-            rc1, rc2, rc3 = st.columns([2, 4, 1])
-            with rc1:
-                st.markdown(f"**{r['competencia']}**")
-            with rc2:
-                # "$" é escapado para &#36; — st.markdown trata $texto$ como LaTeX e engole o cifrão
-                _brl_md = lambda v: brl(v).replace("$", "&#36;")
-                st.markdown(f"Receita: {_brl_md(receita)} · Despesas: {_brl_md(pessoal + geral)} · "
-                           f"<span style='color:{_cor};font-weight:700'>Resultado: {_brl_md(resultado)}"
-                           f"{f' ({margem}%)' if margem is not None else ''}</span>",
-                           unsafe_allow_html=True)
-            with rc3:
-                if st.button("🗑️", key=f"del_dre_{r['id']}"):
-                    db.dre_remover(r["id"])
-                    st.session_state[dre_key] = db.dre_listar(emp_id)
-                    st.rerun()
+        _brl_md = lambda v: brl(v).replace("$", "&#36;")  # $ vira LaTeX no markdown, precisa escapar
+        with st.expander(f"{fper(r['competencia'], full=True)} · Resultado: {brl(resultado)}"
+                        f"{f' ({margem}%)' if margem is not None else ''}"):
+            st.markdown(f"Receita: {_brl_md(receita)} · Despesa de pessoal: {_brl_md(pessoal)} · "
+                       f"Outras despesas: {_brl_md(geral)} · "
+                       f"<span style='color:{_cor};font-weight:700'>Resultado: {_brl_md(resultado)}</span>",
+                       unsafe_allow_html=True)
             if r.get("observacao"):
                 st.caption(f"📝 {r['observacao']}")
+
+            st.markdown("**💸 Outras despesas (detalhado)**")
+            _despesas = list(r.get("despesas_detalhadas") or [])
+            if _despesas:
+                for i, d in enumerate(_despesas):
+                    dc1, dc2 = st.columns([4, 1])
+                    dc1.write(f"{d.get('descricao') or '—'} — {brl(d.get('valor') or 0)}")
+                    if dc2.button("🗑️", key=f"del_desp_{r['id']}_{i}"):
+                        _novas = _despesas[:i] + _despesas[i+1:]
+                        _dre_upsert_campo(emp_id, r, despesas_detalhadas=_novas,
+                                          despesa_geral=sum(d.get("valor") or 0 for d in _novas))
+                        st.session_state[dre_key] = db.dre_listar(emp_id)
+                        st.rerun()
+            else:
+                st.caption("Nenhuma despesa detalhada lançada ainda.")
+
+            with st.form(f"form_add_desp_{r['id']}", clear_on_submit=True):
+                ec1, ec2 = st.columns([3, 2])
+                desc = ec1.text_input("Descrição", placeholder="Ex.: Aluguel, Contador, Energia...")
+                valor = ec2.number_input("Valor", min_value=0.0, step=50.0, format="%.2f")
+                if st.form_submit_button("➕ Adicionar despesa", use_container_width=True):
+                    if desc.strip():
+                        _novas = _despesas + [{"descricao": desc.strip(), "valor": valor}]
+                        _dre_upsert_campo(emp_id, r, despesas_detalhadas=_novas,
+                                          despesa_geral=sum(d.get("valor") or 0 for d in _novas))
+                        st.session_state[dre_key] = db.dre_listar(emp_id)
+                        st.rerun()
+                    else:
+                        st.error("Informe a descrição da despesa.")
+
+            st.divider()
+            if st.button("🗑️ Excluir esta competência inteira", key=f"del_dre_{r['id']}"):
+                db.dre_remover(r["id"])
+                st.session_state[dre_key] = db.dre_listar(emp_id)
+                st.rerun()
+
+    st.divider()
+    _render_dre_exportar_pdf(empresa, registros)
+
+
+def _render_dre_exportar_pdf(empresa, registros):
+    st.markdown("##### 🖨️ Exportar DRE em PDF")
+    st.caption("Escolha o período (uma competência ou vários meses seguidos) e informe os "
+              "responsáveis — o PDF sai pronto para enviar ao cliente.")
+    _competencias = sorted(set(r["competencia"] for r in registros))
+    _labels = {c: fper(c, full=True) for c in _competencias}
+
+    ec1, ec2 = st.columns(2)
+    _de = ec1.selectbox("De", _competencias, index=0, format_func=lambda c: _labels[c],
+                        key="dre_pdf_de")
+    _ate = ec2.selectbox("Até", _competencias, index=len(_competencias) - 1,
+                        format_func=lambda c: _labels[c], key="dre_pdf_ate")
+
+    rc1, rc2 = st.columns(2)
+    resp_empresa = rc1.text_input("Responsável pela empresa", key="dre_pdf_resp_empresa")
+    resp_contador = rc2.text_input("Responsável pelo contador", key="dre_pdf_resp_contador")
+
+    if st.button("📄 Gerar PDF da DRE", type="primary", use_container_width=True):
+        if _de > _ate:
+            st.error("O período \"De\" precisa ser antes (ou igual) ao \"Até\".")
+        elif not resp_empresa.strip() or not resp_contador.strip():
+            st.error("Informe os dois responsáveis antes de gerar o PDF.")
+        else:
+            _selecionados = sorted([r for r in registros if _de <= r["competencia"] <= _ate],
+                                   key=lambda r: r["competencia"])
+            _linhas = []
+            for r in _selecionados:
+                receita = r.get("receita_servico") or 0
+                pessoal = r.get("despesa_pessoal") or 0
+                geral = r.get("despesa_geral") or 0
+                resultado = receita - pessoal - geral
+                _linhas.append({
+                    "competencia": r["competencia"], "receita": receita, "despesa_pessoal": pessoal,
+                    "despesa_geral": geral, "resultado": resultado,
+                    "despesas_detalhadas": r.get("despesas_detalhadas") or [],
+                })
+            _tot_receita = sum(l["receita"] for l in _linhas)
+            _tot_pessoal = sum(l["despesa_pessoal"] for l in _linhas)
+            _tot_geral = sum(l["despesa_geral"] for l in _linhas)
+            _periodo_label = _labels[_de] if _de == _ate else f"{_labels[_de]} a {_labels[_ate]}"
+            _ctx = {
+                "cnpj": empresa.get("cnpj"), "periodo_label": _periodo_label, "linhas": _linhas,
+                "tot_receita": _tot_receita, "tot_pessoal": _tot_pessoal, "tot_geral": _tot_geral,
+                "tot_resultado": _tot_receita - _tot_pessoal - _tot_geral,
+                "responsavel_empresa": resp_empresa.strip(), "responsavel_contador": resp_contador.strip(),
+            }
+            with st.spinner("Montando PDF..."):
+                pdf = rpdf.gerar_dre(_ctx, empresa=empresa.get("razao_social") or "")
+            _emp_fn = re.sub(r"[^\w \-]", "", (empresa.get("razao_social") or "").strip()) \
+                .replace(" ", "-")[:40] or "Empresa"
+            _cf = _de if _de == _ate else f"{_de}_a_{_ate}"
+            st.download_button("⬇️ Baixar PDF da DRE", data=pdf, file_name=f"DRE_{_emp_fn}_{_cf}.pdf",
+                               mime="application/pdf", use_container_width=True)
+            st.success("PDF pronto!")
 
 # ── tela 2: ficha da empresa (dados + checklist + documentos) ────────────────
 def render_empresa_ficha(empresa):

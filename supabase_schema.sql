@@ -329,3 +329,10 @@ create table if not exists esocial_dashboard.triagem_clientes (
 );
 
 grant all on esocial_dashboard.triagem_clientes to anon, authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DRE Gerencial: despesas gerais agora são lançadas item a item (não mais um
+-- valor único) — despesa_geral vira o total calculado a partir dessa lista.
+-- ═══════════════════════════════════════════════════════════════════════════
+alter table esocial_dashboard.dre_gerencial
+  add column if not exists despesas_detalhadas jsonb default '[]'::jsonb;

@@ -237,7 +237,7 @@ def _barras_evol(periodos, series, titulo=""):
 
 
 # ── PÁGINA (faixa de topo + rodapé) via canvas ────────────────────────────────
-def _bg_painter(empresa):
+def _bg_painter(empresa, rodape="Gerado do eSocial · uso gerencial · LGPD"):
     def draw(canvas, doc):
         canvas.saveState()
         pw, ph = A4
@@ -246,7 +246,7 @@ def _bg_painter(empresa):
         # rodapé
         canvas.setFillColor(GREY2)
         canvas.setFont(F, 7)
-        canvas.drawString(1.5*cm, 0.9*cm, "Gerado do eSocial · uso gerencial · LGPD")
+        canvas.drawString(1.5*cm, 0.9*cm, rodape)
         canvas.drawRightString(pw-1.5*cm, 0.9*cm, f"Página {doc.page}")
         canvas.setStrokeColor(LINE); canvas.setLineWidth(0.5)
         canvas.line(1.5*cm, 1.2*cm, pw-1.5*cm, 1.2*cm)
@@ -510,5 +510,130 @@ def gerar(ctx, empresa=""):
         story.append(_table(data, [sw*0.6, sw*0.2, sw*0.2], head=AMBER))
 
     painter = _bg_painter(empresa)
+    doc.build(story, onFirstPage=painter, onLaterPages=painter)
+    return buf.getvalue()
+
+
+def gerar_dre(ctx, empresa=""):
+    """DRE gerencial simplificada — receita de serviço x despesas, por competência.
+    ctx: cnpj, periodo_label, linhas [{competencia, receita, despesa_pessoal, despesa_geral,
+    resultado, despesas_detalhadas}], tot_receita, tot_pessoal, tot_geral, tot_resultado,
+    responsavel_empresa, responsavel_contador."""
+    S = _styles()
+    buf = io.BytesIO()
+    pw, ph = A4
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5*cm, rightMargin=1.5*cm,
+                            topMargin=1.4*cm, bottomMargin=1.7*cm,
+                            title="DRE Gerencial")
+    sw = pw - 3.0*cm
+    story = []
+    hoje = date.today()
+    linhas = ctx.get("linhas", [])
+
+    _logo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+    if os.path.exists(_logo):
+        try:
+            from reportlab.lib.utils import ImageReader
+            _iw, _ih = ImageReader(_logo).getSize()
+            _lw = 4.6*cm; _lh = _lw*_ih/_iw
+            _limg = Image(_logo, width=_lw, height=_lh)
+            _limg.hAlign = "CENTER"
+            story.append(_limg); story.append(Spacer(1, 0.25*cm))
+        except Exception:
+            pass
+
+    _kicker = ParagraphStyle("kick", fontName=FSB, fontSize=9, textColor=colors.HexColor("#9db8de"),
+                             leading=12, spaceAfter=2)
+    _cnpj_txt = f"CNPJ {fmt_cnpj(ctx.get('cnpj'))}  ·  " if ctx.get("cnpj") else ""
+    head_inner = [
+        [Paragraph("DEMONSTRAÇÃO DE RESULTADO (DRE) — GERENCIAL", _kicker)],
+        [Paragraph(empresa or "Empresa não informada", S["h1"])],
+        [Paragraph(_cnpj_txt + f"Período: {ctx.get('periodo_label','')}", S["sub"])],
+    ]
+    head = Table(head_inner, colWidths=[sw])
+    head.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,-1), NAVY),
+        ("LEFTPADDING",(0,0),(-1,-1),18),("RIGHTPADDING",(0,0),(-1,-1),18),
+        ("TOPPADDING",(0,0),(0,0),16),("BOTTOMPADDING",(0,-1),(-1,-1),15),
+        ("TOPPADDING",(0,1),(-1,-1),3),
+        ("ROUNDEDCORNERS",[8,8,8,8]),
+    ]))
+    story.append(head)
+    story.append(Spacer(1, 0.35*cm))
+
+    _resultado = ctx.get("tot_resultado", 0) or 0
+    _margem = round(100 * _resultado / ctx["tot_receita"], 1) if ctx.get("tot_receita") else None
+    _cor_resultado = GREEN if _resultado >= 0 else RED
+
+    story.append(_secao("1", "Indicadores do Período", S))
+    story.append(_kpi_row([
+        _kpi_card("Receita de Serviço", brl(ctx.get("tot_receita", 0)), TEAL, "nota emitida"),
+        _kpi_card("Despesa de Pessoal", brl(ctx.get("tot_pessoal", 0)), AMBER, "folha + encargos"),
+        _kpi_card("Outras Despesas", brl(ctx.get("tot_geral", 0)), GREY, "detalhado"),
+        _kpi_card("Resultado", brl(_resultado), _cor_resultado,
+                  f"margem {_margem:.1f}%".replace(".", ",") if _margem is not None else ""),
+    ], sw))
+
+    if _resultado < 0:
+        story.append(Spacer(1, 0.25*cm))
+        _avbox = Table([[Paragraph(
+            "<b>⚠️ Resultado negativo no período.</b> A prestadora não gerou receita própria "
+            "suficiente para cobrir seus custos — indício de dependência de repasses do tomador.",
+            ParagraphStyle("av", fontName=F, fontSize=8, textColor=colors.HexColor("#8a3a2e"),
+                           leading=11))]], colWidths=[sw])
+        _avbox.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#fdf0ee")),
+            ("BOX",(0,0),(-1,-1), 0.6, RED), ("LEFTPADDING",(0,0),(-1,-1),10),
+            ("RIGHTPADDING",(0,0),(-1,-1),10), ("TOPPADDING",(0,0),(-1,-1),7),
+            ("BOTTOMPADDING",(0,0),(-1,-1),7), ("ROUNDEDCORNERS",[5,5,5,5])]))
+        story.append(_avbox)
+
+    # ── 2. RESUMO POR COMPETÊNCIA ─────────────────────────────────────────────
+    story.append(_secao("2", "Resumo por Competência", S))
+    data = [["Competência", "Receita", "Despesa Pessoal", "Outras Despesas", "Resultado"]]
+    for l in linhas:
+        data.append([fper(l["competencia"]), brl(l["receita"], False), brl(l["despesa_pessoal"], False),
+                     brl(l["despesa_geral"], False), brl(l["resultado"], False)])
+    if len(linhas) > 1:
+        data.append(["TOTAL", brl(ctx.get("tot_receita", 0), False), brl(ctx.get("tot_pessoal", 0), False),
+                     brl(ctx.get("tot_geral", 0), False), brl(_resultado, False)])
+    story.append(_table(data, [sw*0.20, sw*0.22, sw*0.22, sw*0.18, sw*0.18],
+                        total=(len(linhas) > 1), align_from=1))
+
+    # ── 3. DESPESAS DETALHADAS POR COMPETÊNCIA ────────────────────────────────
+    _tem_detalhe = any(l.get("despesas_detalhadas") for l in linhas)
+    if _tem_detalhe:
+        story.append(_secao("3", "Outras Despesas — Detalhamento", S))
+        for l in linhas:
+            _dets = l.get("despesas_detalhadas") or []
+            if not _dets:
+                continue
+            story.append(Paragraph(fper(l["competencia"]), S["h3"]))
+            data = [["Descrição", "Valor"]]
+            for d in sorted(_dets, key=lambda x: -(x.get("valor") or 0)):
+                data.append([str(d.get("descricao") or "—")[:60], brl(d.get("valor") or 0)])
+            story.append(_table(data, [sw*0.7, sw*0.3], font=7.6, head=TEAL))
+
+    # ── ASSINATURAS ────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 1.2*cm))
+    _assin_style = ParagraphStyle("assin", fontName=F, fontSize=8.5, textColor=INK,
+                                  leading=12, alignment=TA_CENTER)
+    _linha_assin = Table([[
+        Paragraph(f"_______________________________<br/>Responsável pela empresa<br/>"
+                 f"<b>{ctx.get('responsavel_empresa','')}</b>", _assin_style),
+        Paragraph(f"_______________________________<br/>Responsável pelo contador<br/>"
+                 f"<b>{ctx.get('responsavel_contador','')}</b>", _assin_style),
+    ]], colWidths=[sw/2, sw/2])
+    _linha_assin.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),
+                                      ("LEFTPADDING",(0,0),(-1,-1),10),
+                                      ("RIGHTPADDING",(0,0),(-1,-1),10)]))
+    story.append(_linha_assin)
+
+    story.append(Spacer(1, 0.6*cm))
+    story.append(Paragraph(
+        "DRE gerencial simplificada — não substitui a contabilidade oficial (balancete/DRE "
+        f"contábil). Documento gerado em {hoje.strftime('%d/%m/%Y')} para uso interno e "
+        "acompanhamento entre as partes.", S["small"]))
+
+    painter = _bg_painter(empresa, rodape="DRE Gerencial · uso gerencial · LGPD")
     doc.build(story, onFirstPage=painter, onLaterPages=painter)
     return buf.getvalue()
