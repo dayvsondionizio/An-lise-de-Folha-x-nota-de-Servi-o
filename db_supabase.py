@@ -251,3 +251,49 @@ def dre_upsert(empresa_id, competencia, dados):
 def dre_remover(row_id):
     c = get_client()
     c.table("dre_gerencial").delete().eq("id", row_id).execute()
+
+
+# ── BIBLIOTECA DE PRECEDENTES JURÍDICOS (office-wide, não por empresa) ───────
+def precedentes_listar():
+    c = get_client()
+    r = c.table("precedentes_juridicos").select("*").order("criado_em").execute()
+    return r.data or []
+
+
+def precedente_criar(dados):
+    c = get_client()
+    r = c.table("precedentes_juridicos").insert(dados).execute()
+    return r.data[0]
+
+
+def precedente_atualizar(row_id, dados):
+    c = get_client()
+    c.table("precedentes_juridicos").update(dados).eq("id", row_id).execute()
+
+
+def precedente_remover(row_id):
+    c = get_client()
+    c.table("precedentes_juridicos").delete().eq("id", row_id).execute()
+
+
+# ── TRIAGEM DA CARTEIRA DE CLIENTES (office-wide) ────────────────────────────
+def triagem_listar():
+    c = get_client()
+    r = c.table("triagem_clientes").select("*").order("criado_em").execute()
+    return r.data or []
+
+
+def triagem_criar(dados):
+    c = get_client()
+    r = c.table("triagem_clientes").insert(dados).execute()
+    return r.data[0]
+
+
+def triagem_atualizar(row_id, dados):
+    c = get_client()
+    c.table("triagem_clientes").update(dados).eq("id", row_id).execute()
+
+
+def triagem_remover(row_id):
+    c = get_client()
+    c.table("triagem_clientes").delete().eq("id", row_id).execute()

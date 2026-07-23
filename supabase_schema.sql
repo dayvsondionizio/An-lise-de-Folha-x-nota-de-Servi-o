@@ -291,3 +291,41 @@ create table if not exists esocial_dashboard.dre_gerencial (
 create index if not exists idx_dre_gerencial_empresa on esocial_dashboard.dre_gerencial(empresa_id);
 
 grant all on esocial_dashboard.dre_gerencial to anon, authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Fechamento dos pontos da ata "Regularização de Empresas Terceirizadas"
+-- (07/17): regra de headcount mínimo, contrato com valor fixo/reajuste,
+-- biblioteca de precedentes jurídicos e triagem da carteira de clientes.
+-- ═══════════════════════════════════════════════════════════════════════════
+alter table esocial_dashboard.admissao_orientacao
+  add column if not exists funcionarios_tomadora integer,
+  add column if not exists funcionarios_prestadora integer,
+  add column if not exists valor_contrato numeric,
+  add column if not exists periodicidade_reajuste text,
+  add column if not exists proxima_data_reajuste date;
+
+create table if not exists esocial_dashboard.precedentes_juridicos (
+  id uuid primary key default gen_random_uuid(),
+  titulo text not null,
+  tribunal_orgao text,
+  numero_processo text,
+  resumo text,
+  aplicacao_pratica text,
+  tags text,
+  criado_em timestamptz default now(),
+  atualizado_em timestamptz default now()
+);
+
+grant all on esocial_dashboard.precedentes_juridicos to anon, authenticated, service_role;
+
+create table if not exists esocial_dashboard.triagem_clientes (
+  id uuid primary key default gen_random_uuid(),
+  nome_cliente text not null,
+  status text default 'A pesquisar' check (status in
+    ('A pesquisar', 'Confirmado tem 2ª empresa', 'Não se aplica', 'Já cadastrado no Conformidade')),
+  observacao text,
+  criado_em timestamptz default now(),
+  atualizado_em timestamptz default now()
+);
+
+grant all on esocial_dashboard.triagem_clientes to anon, authenticated, service_role;

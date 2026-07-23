@@ -369,20 +369,26 @@ CONFORMIDADE_SECOES = [
                 "irregular por si só, mas exigem análise mais rigorosa."),
      "itens": [
         ("cnpj_ativo", "critico", "CNPJ ativo e situação cadastral regular (Receita Federal)",
-         "Consultar no portal da RFB. CNPJ inapto ou baixado invalida toda a estrutura."),
+         "Consultar no portal da RFB. CNPJ inapto ou baixado invalida toda a estrutura.",
+         "Receita Federal / INSS"),
         ("cnae_compativel", "critico", "CNAE principal e secundários compatíveis com a atividade real",
-         "O CNAE não pode ser escolhido apenas para reduzir tributo ou \"cobrir\" atividade diferente."),
+         "O CNAE não pode ser escolhido apenas para reduzir tributo ou \"cobrir\" atividade diferente.",
+         "Receita Federal / INSS"),
         ("objeto_social", "critico", "Objeto social descreve o serviço que será de fato prestado",
-         "Objeto genérico como \"prestação de serviços em geral\" é indício de fragilidade."),
+         "Objeto genérico como \"prestação de serviços em geral\" é indício de fragilidade.",
+         "Receita Federal / INSS"),
         ("capital_compativel", "alto", "Capital social compatível com o porte e a operação (folha+encargos)",
-         "Capital irrisório em empresa com folha alta é sinal de risco alto."),
+         "Capital irrisório em empresa com folha alta é sinal de risco alto.", "Receita Federal / INSS"),
         ("data_abertura", "alto", "Data de abertura anterior à admissão dos empregados transferidos",
-         "Empregados admitidos antes da abertura exigem justificativa formal."),
-        ("ie_im", "medio", "Inscrição estadual e municipal obtidas quando obrigatórias", ""),
+         "Empregados admitidos antes da abertura exigem justificativa formal.", "Justiça do Trabalho"),
+        ("ie_im", "medio", "Inscrição estadual e municipal obtidas quando obrigatórias", "",
+         "Receita Federal / INSS"),
         ("quadro_societario", "medio", "Quadro societário documentado — sócios, participações, poderes",
-         "Identificar relações familiares entre sócios das empresas relacionadas."),
+         "Identificar relações familiares entre sócios das empresas relacionadas.",
+         "Receita Federal / INSS"),
         ("regime_tributario", "medio", "Regime tributário definido e compatível com a atividade",
-         "Cessão/locação de mão de obra é, como regra, impeditiva ao Simples Nacional."),
+         "Cessão/locação de mão de obra é, como regra, impeditiva ao Simples Nacional.",
+         "Receita Federal / INSS"),
      ]},
     {"id": "s2", "icone": "🗺️", "titulo": "2. Operação Real — Mapa de Atividades",
      "desc": "Comprovar que existe prestação de serviço determinada e específica",
@@ -391,112 +397,157 @@ CONFORMIDADE_SECOES = [
                 "direção dos trabalhadores. Simples cessão de mão de obra não é prestação de serviço."),
      "itens": [
         ("servico_definido", "critico", "Existe serviço claramente definido — não é \"fornecimento de pessoal\"",
-         "Ex. correto: execução do setor de produção. Ex. errado: disponibilizar empregados."),
+         "Ex. correto: execução do setor de produção. Ex. errado: disponibilizar empregados.",
+         "Justiça do Trabalho"),
         ("servico_mensuravel", "critico", "O serviço é mensurável e possui entregáveis/indicadores",
-         "Ex: kg produzidos, pedidos entregues, relatório mensal."),
-        ("atividade_compativel", "critico", "Atividade real dos empregados é compatível com CNAE/objeto social", ""),
+         "Ex: kg produzidos, pedidos entregues, relatório mensal.", "Justiça do Trabalho"),
+        ("atividade_compativel", "critico", "Atividade real dos empregados é compatível com CNAE/objeto social", "",
+         "Justiça do Trabalho"),
         ("unidades_identificadas", "alto", "Identificadas as unidades onde o serviço será prestado",
-         "Empregado em unidade não cadastrada no contrato é indício de desvio."),
+         "Empregado em unidade não cadastrada no contrato é indício de desvio.", "Justiça do Trabalho"),
         ("preposto_presente", "alto", "Existe preposto ou gestor da prestadora presente na operação",
-         "Gestão exclusiva pela tomadora é sinal crítico de subordinação direta."),
+         "Gestão exclusiva pela tomadora é sinal crítico de subordinação direta.", "Justiça do Trabalho"),
         ("controle_jornada", "alto", "Mapeado quem define escala, controla ponto e autoriza horas extras",
-         "Se a tomadora controla tudo, há subordinação direta independente do contrato."),
-        ("decisao_admissao", "medio", "Definido quem aplica advertências e decide admissão/demissão", ""),
+         "Se a tomadora controla tudo, há subordinação direta independente do contrato.",
+         "Justiça do Trabalho"),
+        ("decisao_admissao", "medio", "Definido quem aplica advertências e decide admissão/demissão", "",
+         "Justiça do Trabalho"),
         ("uniforme_epi", "medio", "Uniformes, EPIs e ferramentas fornecidos pela prestadora",
-         "Fornecimento pela tomadora reforça o vínculo direto com ela."),
+         "Fornecimento pela tomadora reforça o vínculo direto com ela.", "Ministério do Trabalho"),
      ]},
     {"id": "s3", "icone": "👥", "titulo": "3. Trabalhadores — Registro e Vínculo",
      "desc": "Cada empregado individualmente verificado",
      "alerta": None,
      "itens": [
-        ("esocial_transmitido", "critico", "Todos os empregados registrados no eSocial da prestadora (S-2200)", ""),
+        ("esocial_transmitido", "critico", "Todos os empregados registrados no eSocial da prestadora (S-2200)", "",
+         "Receita Federal / INSS"),
         ("cbo_compativel", "critico", "CBO de cada empregado é compatível com a função real exercida",
-         "CBO de \"auxiliar administrativo\" para quem trabalha na produção é incompatível."),
+         "CBO de \"auxiliar administrativo\" para quem trabalha na produção é incompatível.",
+         "Ministério do Trabalho"),
         ("transferencia_formal", "critico", "Transferências de empresa com documentação formal",
-         "Empregado \"transferido\" informalmente sem documento é passivo trabalhista grave."),
-        ("folha_paga_prestadora", "alto", "Folha paga integralmente pela prestadora — sem socorro da tomadora", ""),
-        ("fgts_prestadora", "alto", "FGTS depositado mensalmente pela prestadora no FGTS Digital", ""),
-        ("sem_circulacao", "alto", "Nenhum empregado circula entre empresas sem registro formal", ""),
-        ("logomarca", "medio", "Logomarca no uniforme é da prestadora — não exclusivamente da tomadora", ""),
+         "Empregado \"transferido\" informalmente sem documento é passivo trabalhista grave.",
+         "Justiça do Trabalho"),
+        ("folha_paga_prestadora", "alto", "Folha paga integralmente pela prestadora — sem socorro da tomadora", "",
+         "Justiça do Trabalho"),
+        ("fgts_prestadora", "alto", "FGTS depositado mensalmente pela prestadora no FGTS Digital", "",
+         "Receita Federal / INSS"),
+        ("sem_circulacao", "alto", "Nenhum empregado circula entre empresas sem registro formal", "",
+         "Justiça do Trabalho"),
+        ("logomarca", "medio", "Logomarca no uniforme é da prestadora — não exclusivamente da tomadora", "",
+         "Ministério do Trabalho"),
      ]},
     {"id": "s4", "icone": "📄", "titulo": "4. Contrato de Prestação de Serviços",
      "desc": "O contrato deve refletir a operação real — nunca o contrário",
      "alerta": ("vermelho", "O contrato é consequência da operação, não o ponto de partida. Um contrato "
                 "bem escrito sobre operação inexistente ou falsa agrava a situação — caracteriza fraude documental."),
      "itens": [
-        ("contrato_nao_retroativo", "critico", "Contrato assinado antes do início dos serviços (não retroativo)", ""),
-        ("objeto_especifico", "critico", "Objeto do contrato descreve serviço específico — não \"mão de obra\"", ""),
+        ("contrato_nao_retroativo", "critico", "Contrato assinado antes do início dos serviços (não retroativo)", "",
+         "Justiça do Trabalho"),
+        ("objeto_especifico", "critico", "Objeto do contrato descreve serviço específico — não \"mão de obra\"", "",
+         "Justiça do Trabalho"),
         ("valor_nao_e_folha", "critico", "Valor do contrato não é exatamente igual a folha+FGTS+imposto",
-         "Preço = folha + X não remunera serviço. O contrato deve remunerar serviço com entregáveis."),
-        ("previsao_medicao", "alto", "Contrato prevê medição, indicadores e relatório mensal de execução", ""),
-        ("preposto_no_contrato", "alto", "Contrato identifica preposto da prestadora responsável pela equipe", ""),
-        ("clausulas_sst", "alto", "Cláusulas de SST, EPI e responsabilidade por acidentes definidas", ""),
-        ("proibicao_pgto_direto", "alto", "Cláusula proíbe pagamento direto de salário pela tomadora", ""),
-        ("vigencia_reajuste", "medio", "Prazo de vigência, reajuste e condições de rescisão definidos", ""),
+         "Preço = folha + X não remunera serviço. O contrato deve remunerar serviço com entregáveis.",
+         "Receita Federal / INSS"),
+        ("previsao_medicao", "alto", "Contrato prevê medição, indicadores e relatório mensal de execução", "",
+         "Justiça do Trabalho"),
+        ("preposto_no_contrato", "alto", "Contrato identifica preposto da prestadora responsável pela equipe", "",
+         "Justiça do Trabalho"),
+        ("clausulas_sst", "alto", "Cláusulas de SST, EPI e responsabilidade por acidentes definidas", "",
+         "Ministério do Trabalho"),
+        ("proibicao_pgto_direto", "alto", "Cláusula proíbe pagamento direto de salário pela tomadora", "",
+         "Justiça do Trabalho"),
+        ("vigencia_reajuste", "medio", "Prazo de vigência, reajuste e condições de rescisão definidos", "",
+         "Múltiplos órgãos"),
         ("relatorio_mensal", "medio", "Relatório mensal de execução produzido e arquivado por competência",
-         "Relatório inexistente = serviço não comprovado, mesmo com contrato."),
+         "Relatório inexistente = serviço não comprovado, mesmo com contrato.", "Justiça do Trabalho"),
      ]},
     {"id": "s5", "icone": "💰", "titulo": "5. Fiscal — PGDAS, Notas e Conciliação",
      "desc": "Receita declarada deve bater com documentos e movimentação bancária",
      "alerta": None,
      "itens": [
         ("pgdas_suportado", "critico", "Receita do PGDAS-D é suportada por notas fiscais do mesmo período",
-         "PGDAS maior que notas = receita artificial. Notas maiores = subnotificação."),
+         "PGDAS maior que notas = receita artificial. Notas maiores = subnotificação.",
+         "Receita Federal / INSS"),
         ("comercio_com_estoque", "critico", "Receita de comércio possui notas de entrada, estoque e saída",
-         "Venda de mercadorias sem compra e sem estoque é operação fictícia."),
-        ("servico_comprovado", "critico", "Receita de serviços possui contrato, OS ou relatório comprobatório", ""),
+         "Venda de mercadorias sem compra e sem estoque é operação fictícia.", "Receita Federal / INSS"),
+        ("servico_comprovado", "critico", "Receita de serviços possui contrato, OS ou relatório comprobatório", "",
+         "Receita Federal / INSS"),
         ("pagamento_conta_propria", "critico", "Pagamentos recebidos transitam pela conta bancária da prestadora",
-         "Recebimento direto na conta da tomadora é confusão patrimonial grave."),
+         "Recebimento direto na conta da tomadora é confusão patrimonial grave.",
+         "Receita Federal / INSS"),
         ("simples_validado", "alto", "Enquadramento no Simples Nacional validado (atividade não impeditiva)",
-         "Não concluir automaticamente. Exige validação tributária formal."),
+         "Não concluir automaticamente. Exige validação tributária formal.", "Receita Federal / INSS"),
         ("retencao_analisada", "alto", "Análise de retenção previdenciária (11%) e ISS pelo tomador",
-         "Serviços por cessão de mão de obra/empreitada: analisar IN RFB 2.110/2022."),
-        ("conciliacao_mensal", "alto", "Conciliação mensal: PGDAS × NF-e × NFS-e × banco × folha × encargos", ""),
-        ("das_em_dia", "medio", "DAS recolhido dentro do prazo e comprovante arquivado", ""),
+         "Serviços por cessão de mão de obra/empreitada: analisar IN RFB 2.110/2022.",
+         "Receita Federal / INSS"),
+        ("conciliacao_mensal", "alto", "Conciliação mensal: PGDAS × NF-e × NFS-e × banco × folha × encargos", "",
+         "Receita Federal / INSS"),
+        ("das_em_dia", "medio", "DAS recolhido dentro do prazo e comprovante arquivado", "",
+         "Receita Federal / INSS"),
      ]},
     {"id": "s6", "icone": "🏦", "titulo": "6. Autonomia Financeira da Prestadora",
      "desc": "Comprovar que a empresa tem vida própria e capacidade econômica",
      "alerta": ("laranja", "Confusão patrimonial: uma empresa que não consegue pagar a própria folha sem "
                 "transferências informais da tomadora não possui autonomia real — vira operação de fachada."),
      "itens": [
-        ("conta_propria", "critico", "Prestadora possui conta bancária própria, separada da tomadora", ""),
+        ("conta_propria", "critico", "Prestadora possui conta bancária própria, separada da tomadora", "",
+         "Receita Federal / INSS"),
         ("saldo_compativel", "critico", "Saldo bancário mensal compatível com pagamento de folha/FGTS/encargos",
-         "Dinheiro só disponível após receber da tomadora = dependência total."),
+         "Dinheiro só disponível após receber da tomadora = dependência total.",
+         "Receita Federal / INSS"),
         ("despesas_proprias", "alto", "Despesas próprias (contador, aluguel, tecnologia) pagas pela prestadora",
-         "Tomadora pagando contas da prestadora é confusão patrimonial."),
+         "Tomadora pagando contas da prestadora é confusão patrimonial.", "Receita Federal / INSS"),
         ("margem_real", "alto", "Existe margem de lucro real — a prestadora não opera no zero a zero",
-         "Receita igual a custo toda competência indica preço calculado só para cobrir folha."),
-        ("emprestimos_formais", "alto", "Empréstimos entre empresas possuem contrato com juros e prazo", ""),
+         "Receita igual a custo toda competência indica preço calculado só para cobrir folha.",
+         "Receita Federal / INSS"),
+        ("emprestimos_formais", "alto", "Empréstimos entre empresas possuem contrato com juros e prazo", "",
+         "Receita Federal / INSS"),
         ("cliente_unico", "medio", "Avaliado o risco de dependência de cliente único",
-         "Cliente único não é ilegal, mas aumenta o risco de caracterização como fachada."),
+         "Cliente único não é ilegal, mas aumenta o risco de caracterização como fachada.",
+         "Múltiplos órgãos"),
      ]},
     {"id": "s7", "icone": "🦺", "titulo": "7. Saúde e Segurança do Trabalho (SST)",
      "desc": "Regularidade fiscal não protege contra fiscalização trabalhista",
      "alerta": None,
      "itens": [
-        ("pgr", "critico", "PGR (Programa de Gerenciamento de Riscos) elaborado e atualizado — NR-1", ""),
-        ("pcmso", "critico", "PCMSO vigente", ""),
-        ("aso_valido", "critico", "ASO válido para cada empregado (admissional/periódico/mudança de risco)", ""),
+        ("pgr", "critico", "PGR (Programa de Gerenciamento de Riscos) elaborado e atualizado — NR-1", "",
+         "Ministério do Trabalho"),
+        ("pcmso", "critico", "PCMSO vigente", "", "Ministério do Trabalho"),
+        ("aso_valido", "critico", "ASO válido para cada empregado (admissional/periódico/mudança de risco)", "",
+         "Ministério do Trabalho"),
         ("laudos", "alto", "Laudos de insalubridade e periculosidade emitidos quando exigido",
-         "Laudo ausente = pagamento indevido ou adicional faltante = passivo trabalhista."),
-        ("epi_ficha", "alto", "Fichas de EPI assinadas e CAs vigentes", ""),
-        ("treinamentos", "alto", "Treinamentos obrigatórios realizados e documentados", ""),
+         "Laudo ausente = pagamento indevido ou adicional faltante = passivo trabalhista.",
+         "Ministério do Trabalho"),
+        ("epi_ficha", "alto", "Fichas de EPI assinadas e CAs vigentes", "", "Ministério do Trabalho"),
+        ("treinamentos", "alto", "Treinamentos obrigatórios realizados e documentados", "",
+         "Ministério do Trabalho"),
         ("responsabilidade_sst", "alto", "Responsabilidade por SST claramente definida no contrato",
-         "Ausência de definição = ambas respondem solidariamente em acidente."),
-        ("cat_emitida", "medio", "Acidentes anteriores possuem CAT emitida e registrada no eSocial", ""),
+         "Ausência de definição = ambas respondem solidariamente em acidente.",
+         "Ministério do Trabalho"),
+        ("cat_emitida", "medio", "Acidentes anteriores possuem CAT emitida e registrada no eSocial", "",
+         "Ministério do Trabalho"),
      ]},
     {"id": "s8", "icone": "🚨", "titulo": "8. Alertas — Sinais de Risco Grave",
      "desc": "Se qualquer item abaixo for identificado: suspender e encaminhar para análise jurídica",
      "alerta": ("vermelho", "Quando qualquer item abaixo for identificado, NÃO emita parecer de "
                 "conformidade. Encaminhe para validação jurídica e tributária antes de qualquer recomendação."),
      "itens": [
-        ("alerta_sem_estoque", "critico", "Ausente: receita de mercadorias sem nenhuma compra ou estoque", ""),
-        ("alerta_sem_contrato", "critico", "Ausente: receita de serviços sem contrato, relatório ou tomador identificado", ""),
-        ("alerta_pgto_direto", "critico", "Ausente: tomadora paga diretamente salários de empregados da prestadora", ""),
-        ("alerta_direcao_total", "critico", "Ausente: todos os empregados dirigidos exclusivamente pela tomadora", ""),
-        ("alerta_pgdas_sem_doc", "critico", "Ausente: PGDAS-D com receitas sem qualquer documento correspondente", ""),
-        ("alerta_sem_conta", "critico", "Ausente: prestadora sem conta própria ou sem capacidade de pagar folha sozinha", ""),
-        ("alerta_impeditivo", "critico", "Ausente: atividade impeditiva ao Simples (cessão de mão de obra pura)", ""),
+        ("alerta_sem_estoque", "critico", "Ausente: receita de mercadorias sem nenhuma compra ou estoque", "",
+         "Múltiplos órgãos"),
+        ("alerta_sem_contrato", "critico",
+         "Ausente: receita de serviços sem contrato, relatório ou tomador identificado", "",
+         "Múltiplos órgãos"),
+        ("alerta_pgto_direto", "critico",
+         "Ausente: tomadora paga diretamente salários de empregados da prestadora", "", "Múltiplos órgãos"),
+        ("alerta_direcao_total", "critico",
+         "Ausente: todos os empregados dirigidos exclusivamente pela tomadora", "", "Múltiplos órgãos"),
+        ("alerta_pgdas_sem_doc", "critico",
+         "Ausente: PGDAS-D com receitas sem qualquer documento correspondente", "", "Múltiplos órgãos"),
+        ("alerta_sem_conta", "critico",
+         "Ausente: prestadora sem conta própria ou sem capacidade de pagar folha sozinha", "",
+         "Múltiplos órgãos"),
+        ("alerta_impeditivo", "critico",
+         "Ausente: atividade impeditiva ao Simples (cessão de mão de obra pura)", "", "Múltiplos órgãos"),
      ]},
 ]
 
@@ -676,6 +727,18 @@ CHECKLIST_ALINHAMENTO_FUNCAO = [
     "O exame admissional (ASO) foi agendado antes do início das atividades?",
     "Uniforme, crachá e e-mail a serem usados identificam a prestadora — não o tomador?",
     "O contrato de trabalho foi assinado com a prestadora como empregadora antes do início efetivo?",
+]
+
+CNAE_RECOMENDADOS_PRESTADORA = [
+    {"nome": "Treinamento e desenvolvimento profissional",
+     "descricao": "Compatível com serviços de capacitação/gestão de mão de obra especializada.",
+     "palavras_chave": ["treinamento", "desenvolvimento profissional", "capacitação"]},
+    {"nome": "Serviços de escritório e apoio administrativo",
+     "descricao": "Compatível com atividades de suporte administrativo prestadas a terceiros.",
+     "palavras_chave": ["escritório", "apoio administrativo", "administrativo"]},
+    {"nome": "Atividades de logística",
+     "descricao": "Compatível quando o serviço prestado é de fato movimentação/armazenagem/distribuição.",
+     "palavras_chave": ["logística", "armazenagem", "distribuição", "transporte"]},
 ]
 
 PERGUNTAS_CANDIDATO = [
@@ -873,7 +936,7 @@ def _gerar_dossie_zip(empresa):
         for s_idx, sec in enumerate(CONFORMIDADE_SECOES, start=1):
             _checklist_txt.append(f"\n{sec['icone']} {sec['titulo']}")
             _itens_html = []
-            for i_idx, (iid, risco_item, texto, nota) in enumerate(sec["itens"], start=1):
+            for i_idx, (iid, risco_item, texto, nota, orgao) in enumerate(sec["itens"], start=1):
                 status = "Pendente" if pend_checklist.get(iid) else \
                     ("Verificado" if itens_estado.get(iid) else "Não verificado")
                 marca = {"Pendente": "[PENDENTE]", "Verificado": "[X]"}.get(status, "[ ]")
@@ -1006,13 +1069,114 @@ Situação: {_e(empresa.get('situacao','—'))} · Gerado em {datetime.now().str
     return buf
 
 # ── tela 1: lista de empresas cadastradas ────────────────────────────────────
-def render_empresas_lista():
-    st.markdown("<div class='hero'><h1>🛡️ Conformidade — Cadastro de Empresas</h1>"
-                "<p>Cadastre cada empresa do grupo (tomadora e prestadora(s)) para consultar a situação "
-                "em tempo real e reunir os documentos necessários para uma fiscalização. "
-                "<b>Análise preliminar — sujeita à validação jurídica e tributária.</b></p></div>",
-                unsafe_allow_html=True)
+def _render_triagem_clientes():
+    st.caption("Anote rapidamente clientes candidatos a ter uma 2ª empresa de folha, antes de abrir "
+              "uma ficha completa no Conformidade. Serve para não perder nenhum cliente da carteira "
+              "durante o mapeamento.")
+    _triagem_key = "triagem_state"
+    if _triagem_key not in st.session_state:
+        st.session_state[_triagem_key] = db.triagem_listar()
+    _triagem = st.session_state[_triagem_key]
 
+    _status_opcoes = ["A pesquisar", "Confirmado tem 2ª empresa", "Não se aplica",
+                      "Já cadastrado no Conformidade"]
+    _status_cor = {"A pesquisar": "#718096", "Confirmado tem 2ª empresa": "#c05621",
+                  "Não se aplica": "#276749", "Já cadastrado no Conformidade": "#2a5080"}
+
+    with st.expander("➕ Adicionar cliente à triagem", expanded=not _triagem):
+        with st.form("form_triagem_novo", clear_on_submit=True):
+            nome_cliente = st.text_input("Nome do cliente")
+            observacao = st.text_area("Observação", placeholder="Ex.: solicitar à Mayara a relação completa")
+            if st.form_submit_button("Adicionar", type="primary", use_container_width=True):
+                if nome_cliente.strip():
+                    db.triagem_criar({"nome_cliente": nome_cliente.strip(),
+                                      "observacao": observacao.strip()})
+                    st.session_state[_triagem_key] = db.triagem_listar()
+                    st.rerun()
+                else:
+                    st.error("Informe o nome do cliente.")
+
+    if not _triagem:
+        st.info("Nenhum cliente na triagem ainda.")
+        return
+
+    for t in _triagem:
+        with st.container(border=True):
+            tc1, tc2, tc3 = st.columns([3, 2, 1])
+            with tc1:
+                st.markdown(f"**{t['nome_cliente']}**")
+                if t.get("observacao"):
+                    st.caption(t["observacao"])
+            with tc2:
+                _idx = _status_opcoes.index(t.get("status")) if t.get("status") in _status_opcoes else 0
+                _novo_status = st.selectbox("Status", _status_opcoes, index=_idx,
+                                            key=f"status_triagem_{t['id']}", label_visibility="collapsed")
+                if _novo_status != t.get("status"):
+                    db.triagem_atualizar(t["id"], {"status": _novo_status})
+                    st.session_state[_triagem_key] = db.triagem_listar()
+                    st.rerun()
+            with tc3:
+                if st.button("🗑️", key=f"del_triagem_{t['id']}"):
+                    db.triagem_remover(t["id"])
+                    st.session_state[_triagem_key] = db.triagem_listar()
+                    st.rerun()
+
+
+def _render_biblioteca_precedentes():
+    st.caption("Biblioteca de precedentes jurídicos (CARF, TST, STF) que embasam a análise de "
+              "terceirização/pejotização — vale para qualquer cliente do escritório, não só um. "
+              "Cadastre aqui quando a pesquisa de um caso estiver concluída.")
+    _prec_key = "precedentes_state"
+    if _prec_key not in st.session_state:
+        st.session_state[_prec_key] = db.precedentes_listar()
+    _precedentes = st.session_state[_prec_key]
+
+    with st.expander("➕ Adicionar precedente", expanded=not _precedentes):
+        with st.form("form_precedente_novo", clear_on_submit=True):
+            titulo = st.text_input("Título / apelido do caso", placeholder="Ex.: Empresa de sandália — RS")
+            pc1, pc2 = st.columns(2)
+            tribunal_orgao = pc1.text_input("Tribunal/órgão", placeholder="Ex.: CARF")
+            numero_processo = pc2.text_input("Número do processo")
+            resumo = st.text_area("Resumo da decisão")
+            aplicacao_pratica = st.text_area("Aplicação prática para os clientes")
+            tags = st.text_input("Tags", placeholder="Ex.: simulação, INSS, pejotização")
+            if st.form_submit_button("Adicionar", type="primary", use_container_width=True):
+                if titulo.strip():
+                    db.precedente_criar({
+                        "titulo": titulo.strip(), "tribunal_orgao": tribunal_orgao.strip(),
+                        "numero_processo": numero_processo.strip(), "resumo": resumo.strip(),
+                        "aplicacao_pratica": aplicacao_pratica.strip(), "tags": tags.strip(),
+                    })
+                    st.session_state[_prec_key] = db.precedentes_listar()
+                    st.rerun()
+                else:
+                    st.error("Informe ao menos o título do caso.")
+
+    if not _precedentes:
+        st.info("Nenhum precedente cadastrado ainda.")
+        return
+
+    for p in _precedentes:
+        with st.container(border=True):
+            pc1, pc2 = st.columns([5, 1])
+            with pc1:
+                st.markdown(f"**{p['titulo']}**"
+                           f"{' · ' + p['tribunal_orgao'] if p.get('tribunal_orgao') else ''}"
+                           f"{' · Processo ' + p['numero_processo'] if p.get('numero_processo') else ''}")
+                if p.get("resumo"):
+                    st.caption(p["resumo"])
+                if p.get("aplicacao_pratica"):
+                    st.markdown(f"📌 **Aplicação prática:** {p['aplicacao_pratica']}")
+                if p.get("tags"):
+                    st.caption(f"🏷️ {p['tags']}")
+            with pc2:
+                if st.button("🗑️", key=f"del_prec_{p['id']}"):
+                    db.precedente_remover(p["id"])
+                    st.session_state[_prec_key] = db.precedentes_listar()
+                    st.rerun()
+
+
+def _render_empresas_cadastro_e_lista():
     empresas = _empresas_carregar()
 
     if empresas:
@@ -1113,6 +1277,22 @@ def render_empresas_lista():
                 st.session_state.conf_empresa_id = emp["id"]
                 st.rerun()
 
+
+def render_empresas_lista():
+    st.markdown("<div class='hero'><h1>🛡️ Conformidade — Cadastro de Empresas</h1>"
+                "<p>Cadastre cada empresa do grupo (tomadora e prestadora(s)) para consultar a situação "
+                "em tempo real e reunir os documentos necessários para uma fiscalização. "
+                "<b>Análise preliminar — sujeita à validação jurídica e tributária.</b></p></div>",
+                unsafe_allow_html=True)
+
+    _lista_tabs = st.tabs(["🏢 Empresas", "📋 Triagem de Clientes", "📚 Biblioteca de Precedentes"])
+    with _lista_tabs[0]:
+        _render_empresas_cadastro_e_lista()
+    with _lista_tabs[1]:
+        _render_triagem_clientes()
+    with _lista_tabs[2]:
+        _render_biblioteca_precedentes()
+
 # ── ADMISSÃO & TERCEIRIZAÇÃO — guia de orientação (por empresa, não por pessoa) ──
 def _render_orientacao_admissao(empresa, emp_id):
     st.caption("Este guia não cadastra pessoas — ele orienta o Departamento Pessoal e o cliente "
@@ -1141,16 +1321,101 @@ def _render_orientacao_admissao(empresa, emp_id):
                        "por encomenda, para estabelecimentos do grupo contratante.",
             help="Descreva o SERVIÇO que a prestadora entrega — é a partir disso que se avalia se "
                 "uma função é compatível ou é, na prática, mão de obra cedida.")
+
+        st.markdown("**👥 Distribuição de funcionários**")
+        st.caption("Regra prática: manter pelo menos 10%-20% do quadro na empresa principal "
+                  "(tomadora) ajuda a demonstrar que ela não terceirizou 100% da operação.")
+        rc5, rc6 = st.columns(2)
+        func_tomadora = rc5.number_input("Funcionários na empresa principal (tomadora)",
+                                         min_value=0, step=1,
+                                         value=int(_guia.get("funcionarios_tomadora") or 0))
+        func_prestadora = rc6.number_input("Funcionários na prestadora", min_value=0, step=1,
+                                           value=int(_guia.get("funcionarios_prestadora") or 0))
+
+        st.markdown("**📄 Contrato — valor e reajuste**")
+        st.caption("Ideal: valor fixo por semestre/ano, sem variar mês a mês conforme a folha "
+                  "(admissões/demissões do mês não devem alterar o valor do contrato).")
+        rc7, rc8, rc9 = st.columns(3)
+        valor_contrato = rc7.number_input("Valor do contrato", min_value=0.0, step=100.0,
+                                          format="%.2f", value=float(_guia.get("valor_contrato") or 0))
+        _periodicidade_opcoes = ["Semestral", "Anual"]
+        _per_idx = _periodicidade_opcoes.index(_guia.get("periodicidade_reajuste")) \
+            if _guia.get("periodicidade_reajuste") in _periodicidade_opcoes else 0
+        periodicidade_reajuste = rc8.selectbox("Periodicidade de reajuste", _periodicidade_opcoes,
+                                               index=_per_idx)
+        _prox_reajuste_atual = _guia.get("proxima_data_reajuste")
+        proxima_data_reajuste = rc9.date_input(
+            "Próxima data de reajuste", value=None, format="DD/MM/YYYY",
+            key=f"prox_reajuste_{emp_id}")
+
         if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
             _dados = dict(_guia)
             _dados.update({
                 "contratante_nome": contratante_nome.strip(), "unidade": unidade.strip(),
                 "gestor_prestadora": gestor.strip(), "preposto": preposto.strip(),
                 "objeto_contrato": objeto_contrato.strip(),
+                "funcionarios_tomadora": int(func_tomadora), "funcionarios_prestadora": int(func_prestadora),
+                "valor_contrato": float(valor_contrato), "periodicidade_reajuste": periodicidade_reajuste,
+                "proxima_data_reajuste": proxima_data_reajuste.isoformat() if proxima_data_reajuste
+                    else _prox_reajuste_atual,
             })
             db.orientacao_admissao_salvar(emp_id, _dados)
             st.success("Salvo!")
             st.rerun()
+
+    # ── ALERTA: distribuição de funcionários ──
+    _ft = _guia.get("funcionarios_tomadora") or 0
+    _fp = _guia.get("funcionarios_prestadora") or 0
+    _total_func = _ft + _fp
+    if _total_func > 0:
+        _pct_tomadora = round(100 * _ft / _total_func, 1)
+        if _pct_tomadora < 10:
+            st.markdown(f"<div class='al-r'>🔴 Só <b>{_pct_tomadora}%</b> do quadro está na empresa "
+                       f"principal — abaixo dos 10% mínimos recomendados.</div>", unsafe_allow_html=True)
+        elif _pct_tomadora < 20:
+            st.markdown(f"<div class='al-y'>🟡 <b>{_pct_tomadora}%</b> do quadro está na empresa "
+                       f"principal — dentro da faixa mínima (10%-20%), mas no limite.</div>",
+                       unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='al-g'>✅ <b>{_pct_tomadora}%</b> do quadro está na empresa "
+                       f"principal — acima da faixa mínima recomendada.</div>", unsafe_allow_html=True)
+
+    # ── ALERTA: reajuste do contrato ──
+    _prox_reajuste = _guia.get("proxima_data_reajuste")
+    if _prox_reajuste:
+        _dias_reajuste = (date.fromisoformat(_prox_reajuste) - date.today()).days
+        if _dias_reajuste < 0:
+            st.markdown(f"<div class='al-r'>🔴 O reajuste do contrato venceu há "
+                       f"{abs(_dias_reajuste)} dia(s).</div>", unsafe_allow_html=True)
+        elif _dias_reajuste <= 30:
+            st.markdown(f"<div class='al-y'>🟡 Reajuste do contrato vence em "
+                       f"{_dias_reajuste} dia(s).</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='al-g'>✅ Próximo reajuste do contrato em "
+                       f"{_dias_reajuste} dia(s).</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── CNAE recomendado para a prestadora ──
+    st.markdown("##### 🏷️ CNAE recomendado para a prestadora")
+    st.caption("O CNAE precisa refletir o SERVIÇO prestado — nunca a atividade-fim do tomador. "
+              "CNAEs mais usados nesse tipo de estrutura:")
+    for _cnae_ref in CNAE_RECOMENDADOS_PRESTADORA:
+        st.markdown(f"- **{_cnae_ref['nome']}** — {_cnae_ref['descricao']}")
+    _cnae_atual = (empresa.get("cnae_principal") or "").strip().lower()
+    if _cnae_atual:
+        _bate = any(kw in _cnae_atual for ref in CNAE_RECOMENDADOS_PRESTADORA for kw in ref["palavras_chave"])
+        if not _bate:
+            st.markdown(f"<div class='al-y'>🟡 O CNAE cadastrado (\"{empresa.get('cnae_principal')}\") "
+                       "não bate com nenhum CNAE de referência acima — confirme se é compatível com "
+                       "prestação de serviço, e não com a atividade-fim do tomador.</div>",
+                       unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='al-g'>✅ O CNAE cadastrado (\"{empresa.get('cnae_principal')}\") "
+                       "é compatível com um dos CNAEs de referência.</div>", unsafe_allow_html=True)
+    else:
+        st.caption("Cadastre o CNAE principal da empresa (na edição dos dados cadastrais) para "
+                  "conferir automaticamente a compatibilidade.")
 
     st.divider()
 
@@ -1624,7 +1889,7 @@ def render_empresa_ficha(empresa):
         total_itens, total_ok = 0, 0
         pend = {"critico": [], "alto": [], "medio": []}
         for sec in CONFORMIDADE_SECOES:
-            for iid, risco, texto, nota in sec["itens"]:
+            for iid, risco, texto, nota, orgao in sec["itens"]:
                 total_itens += 1
                 if st.session_state[key_state].get(iid):
                     total_ok += 1
@@ -1654,106 +1919,127 @@ def render_empresa_ficha(empresa):
 
         st.divider()
 
-        tabs = st.tabs([f"{s['icone']} {s['id'].upper()}" for s in CONFORMIDADE_SECOES])
-        for tab, sec in zip(tabs, CONFORMIDADE_SECOES):
-            with tab:
-                st.markdown(f"##### {sec['titulo']}")
-                st.caption(sec["desc"])
-                if sec["alerta"]:
-                    _cor, _txt = sec["alerta"]
-                    bg, fg, bd = _alert_css[_cor]
-                    st.markdown(f"<div style='background:{bg};border:1px solid {bd};color:{fg};"
-                               f"border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px'>"
-                               f"⚠️ {_txt}</div>", unsafe_allow_html=True)
-                for iid, risco, texto, nota in sec["itens"]:
-                    checked = st.session_state[key_state].get(iid, False)
-                    pendente_flag = st.session_state[pend_key].get(iid, False)
-                    _docs = docs_mapa.get(iid, [])
-                    ndocs = len(_docs)
-                    if pendente_flag:
-                        _icone_ck = "🟧"
-                    elif checked:
-                        _icone_ck = "✅"
-                    else:
-                        _icone_ck = "⬜"
-                    _icone_doc = f" · 📎{ndocs}" if ndocs else ""
-                    with st.expander(f"{_icone_ck} {texto}  ·  {_RISK_LABEL[risco]}{_icone_doc}"):
-                        if nota:
-                            st.caption(nota)
-                        cchk1, cchk2 = st.columns(2)
-                        novo_check = cchk1.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
-                        novo_pendente = cchk2.checkbox("🟧 Pendente", value=pendente_flag,
-                                                       key=f"pend_{emp_id}_{iid}",
-                                                       help="Marque quando já foi analisado mas ainda "
-                                                            "precisa de ação — fica visível em laranja.")
-                        if novo_pendente and not pendente_flag:
-                            novo_check = False   # pendente e verificado são mutuamente exclusivos
-                        elif novo_check and not checked:
-                            novo_pendente = False
-                        if novo_check != checked or novo_pendente != pendente_flag:
-                            st.session_state[key_state][iid] = novo_check
-                            st.session_state[pend_key][iid] = novo_pendente
-                            _diagnostico_upsert(emp_id, iid, novo_check,
-                                                st.session_state[obs_key].get(iid), novo_pendente)
-                            if novo_pendente and not pendente_flag:
-                                _plano_atual = db.plano_listar(emp_id)
-                                _ja_existe = any(a.get("origem_checklist_item_id") == iid for a in _plano_atual)
-                                if not _ja_existe:
-                                    _prioridade_auto = {"critico": "Altíssima", "alto": "Alta",
-                                                        "medio": "Média"}.get(risco, "Média")
-                                    db.plano_inserir(emp_id, {
-                                        "o_que": f"Resolver pendência do checklist: {texto}",
-                                        "por_que": nota or f"Item marcado como pendente em "
-                                                          f"\"{sec['titulo']}\" no Checklist Operacional.",
-                                        "prioridade": _prioridade_auto, "status": "Pendente",
-                                        "origem_checklist_item_id": iid,
-                                    })
-                                    st.session_state[f"plano_state_{emp_id}"] = db.plano_listar(emp_id)
-                                    st.toast(f"✅ Ação criada no Plano de Ação: \"{texto[:60]}\"")
+        def _render_item_checklist(iid, risco, texto, nota, sec_titulo_origem):
+            checked = st.session_state[key_state].get(iid, False)
+            pendente_flag = st.session_state[pend_key].get(iid, False)
+            _docs = docs_mapa.get(iid, [])
+            ndocs = len(_docs)
+            if pendente_flag:
+                _icone_ck = "🟧"
+            elif checked:
+                _icone_ck = "✅"
+            else:
+                _icone_ck = "⬜"
+            _icone_doc = f" · 📎{ndocs}" if ndocs else ""
+            with st.expander(f"{_icone_ck} {texto}  ·  {_RISK_LABEL[risco]}{_icone_doc}"):
+                if nota:
+                    st.caption(nota)
+                cchk1, cchk2 = st.columns(2)
+                novo_check = cchk1.checkbox("Verificado", value=checked, key=f"chk_{emp_id}_{iid}")
+                novo_pendente = cchk2.checkbox("🟧 Pendente", value=pendente_flag,
+                                               key=f"pend_{emp_id}_{iid}",
+                                               help="Marque quando já foi analisado mas ainda "
+                                                    "precisa de ação — fica visível em laranja.")
+                if novo_pendente and not pendente_flag:
+                    novo_check = False   # pendente e verificado são mutuamente exclusivos
+                elif novo_check and not checked:
+                    novo_pendente = False
+                if novo_check != checked or novo_pendente != pendente_flag:
+                    st.session_state[key_state][iid] = novo_check
+                    st.session_state[pend_key][iid] = novo_pendente
+                    _diagnostico_upsert(emp_id, iid, novo_check,
+                                        st.session_state[obs_key].get(iid), novo_pendente)
+                    if novo_pendente and not pendente_flag:
+                        _plano_atual = db.plano_listar(emp_id)
+                        _ja_existe = any(a.get("origem_checklist_item_id") == iid for a in _plano_atual)
+                        if not _ja_existe:
+                            _prioridade_auto = {"critico": "Altíssima", "alto": "Alta",
+                                                "medio": "Média"}.get(risco, "Média")
+                            db.plano_inserir(emp_id, {
+                                "o_que": f"Resolver pendência do checklist: {texto}",
+                                "por_que": nota or f"Item marcado como pendente em "
+                                                  f"\"{sec_titulo_origem}\" no Checklist Operacional.",
+                                "prioridade": _prioridade_auto, "status": "Pendente",
+                                "origem_checklist_item_id": iid,
+                            })
+                            st.session_state[f"plano_state_{emp_id}"] = db.plano_listar(emp_id)
+                            st.toast(f"✅ Ação criada no Plano de Ação: \"{texto[:60]}\"")
+                    st.rerun()
+
+                _obs_atual = st.session_state[obs_key].get(iid, "")
+                _nova_obs = st.text_area("📝 Observação", value=_obs_atual, key=f"obs_{emp_id}_{iid}",
+                                         placeholder="Digite aqui uma observação sobre este ponto...")
+                if _nova_obs != _obs_atual:
+                    st.session_state[obs_key][iid] = _nova_obs
+                    _diagnostico_upsert(emp_id, iid, st.session_state[key_state].get(iid, False),
+                                        _nova_obs, st.session_state[pend_key].get(iid, False))
+
+                st.markdown("**📎 Documentos anexados**")
+                if _docs:
+                    for _d in _docs:
+                        _dc1, _dc2, _dc3 = st.columns([4, 1, 1])
+                        _dc1.caption(_d.split("__", 1)[-1])
+                        _dc2.download_button("⬇️", data=db.docs_baixar(emp_id, iid, _d),
+                                             file_name=_d.split("__", 1)[-1],
+                                             key=f"dl_{emp_id}_{iid}_{_d}")
+                        if _dc3.button("🗑️", key=f"rm_{emp_id}_{iid}_{_d}"):
+                            _docs_remover(emp_id, iid, _d)
                             st.rerun()
+                else:
+                    st.caption("Nenhum documento anexado ainda.")
 
-                        _obs_atual = st.session_state[obs_key].get(iid, "")
-                        _nova_obs = st.text_area("📝 Observação", value=_obs_atual, key=f"obs_{emp_id}_{iid}",
-                                                 placeholder="Digite aqui uma observação sobre este ponto...")
-                        if _nova_obs != _obs_atual:
-                            st.session_state[obs_key][iid] = _nova_obs
-                            _diagnostico_upsert(emp_id, iid, st.session_state[key_state].get(iid, False),
-                                                _nova_obs, st.session_state[pend_key].get(iid, False))
-
-                        st.markdown("**📎 Documentos anexados**")
-                        if _docs:
-                            for _d in _docs:
-                                _dc1, _dc2, _dc3 = st.columns([4, 1, 1])
-                                _dc1.caption(_d.split("__", 1)[-1])
-                                _dc2.download_button("⬇️", data=db.docs_baixar(emp_id, iid, _d),
-                                                     file_name=_d.split("__", 1)[-1],
-                                                     key=f"dl_{emp_id}_{iid}_{_d}")
-                                if _dc3.button("🗑️", key=f"rm_{emp_id}_{iid}_{_d}"):
-                                    _docs_remover(emp_id, iid, _d)
-                                    st.rerun()
+                _upcnt_key = f"upcnt_{emp_id}_{iid}"
+                if _upcnt_key not in st.session_state:
+                    st.session_state[_upcnt_key] = 0
+                _novo_doc = st.file_uploader(
+                    "Anexar documento", key=f"up_{emp_id}_{iid}_{st.session_state[_upcnt_key]}",
+                    accept_multiple_files=True, label_visibility="collapsed")
+                if _novo_doc:
+                    _ok, _falhas = 0, []
+                    for _arq in _novo_doc:
+                        _sucesso, _erro = _docs_salvar(emp_id, iid, _arq)
+                        if _sucesso:
+                            _ok += 1
                         else:
-                            st.caption("Nenhum documento anexado ainda.")
+                            _falhas.append((_arq.name, _erro))
+                    st.session_state[_upcnt_key] += 1
+                    if _ok:
+                        st.success(f"{_ok} arquivo(s) anexado(s)!")
+                    for _fn, _err in _falhas:
+                        st.error(f"Falha ao anexar **{_fn}**: {_err}")
+                    st.rerun()
 
-                        _upcnt_key = f"upcnt_{emp_id}_{iid}"
-                        if _upcnt_key not in st.session_state:
-                            st.session_state[_upcnt_key] = 0
-                        _novo_doc = st.file_uploader(
-                            "Anexar documento", key=f"up_{emp_id}_{iid}_{st.session_state[_upcnt_key]}",
-                            accept_multiple_files=True, label_visibility="collapsed")
-                        if _novo_doc:
-                            _ok, _falhas = 0, []
-                            for _arq in _novo_doc:
-                                _sucesso, _erro = _docs_salvar(emp_id, iid, _arq)
-                                if _sucesso:
-                                    _ok += 1
-                                else:
-                                    _falhas.append((_arq.name, _erro))
-                            st.session_state[_upcnt_key] += 1
-                            if _ok:
-                                st.success(f"{_ok} arquivo(s) anexado(s)!")
-                            for _fn, _err in _falhas:
-                                st.error(f"Falha ao anexar **{_fn}**: {_err}")
-                            st.rerun()
+        _view_mode = st.radio("Visualizar por:", ["📂 Seção", "🏛️ Órgão fiscalizador"],
+                              horizontal=True, key=f"checklist_view_{emp_id}")
+
+        if _view_mode == "📂 Seção":
+            tabs = st.tabs([f"{s['icone']} {s['id'].upper()}" for s in CONFORMIDADE_SECOES])
+            for tab, sec in zip(tabs, CONFORMIDADE_SECOES):
+                with tab:
+                    st.markdown(f"##### {sec['titulo']}")
+                    st.caption(sec["desc"])
+                    if sec["alerta"]:
+                        _cor, _txt = sec["alerta"]
+                        bg, fg, bd = _alert_css[_cor]
+                        st.markdown(f"<div style='background:{bg};border:1px solid {bd};color:{fg};"
+                                   f"border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px'>"
+                                   f"⚠️ {_txt}</div>", unsafe_allow_html=True)
+                    for iid, risco, texto, nota, orgao in sec["itens"]:
+                        _render_item_checklist(iid, risco, texto, nota, sec["titulo"])
+        else:
+            st.caption("Os mesmos itens do checklist, reagrupados por qual órgão fiscalizador "
+                      "costuma cobrar cada ponto — útil para preparar defesa/documentação por frente.")
+            _orgaos_ordem = ["Ministério do Trabalho", "Justiça do Trabalho",
+                            "Receita Federal / INSS", "Múltiplos órgãos"]
+            _por_orgao = {o: [] for o in _orgaos_ordem}
+            for sec in CONFORMIDADE_SECOES:
+                for iid, risco, texto, nota, orgao in sec["itens"]:
+                    _por_orgao.setdefault(orgao, []).append((iid, risco, texto, nota, sec["titulo"]))
+            _orgao_tabs = st.tabs([f"🏛️ {o} ({len(_por_orgao[o])})" for o in _orgaos_ordem])
+            for tab, orgao in zip(_orgao_tabs, _orgaos_ordem):
+                with tab:
+                    for iid, risco, texto, nota, sec_titulo in _por_orgao[orgao]:
+                        _render_item_checklist(iid, risco, texto, nota, sec_titulo)
 
     # ═══ ABA 3: PLANO DE AÇÃO 5W2H ═══
     _PRIORIDADE_OPCOES = ["Altíssima", "Alta", "Média", "Baixa"]
