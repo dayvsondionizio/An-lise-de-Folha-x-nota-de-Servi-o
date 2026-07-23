@@ -142,3 +142,152 @@ alter default privileges in schema esocial_dashboard
 -- ADIÇÃO: status "Pendente" no checklist operacional (laranja, visível)
 -- ═══════════════════════════════════════════════════════════════════════════
 alter table esocial_dashboard.checklist_respostas add column if not exists pendente boolean default false;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SPRINT A: Plano de Implantação e Regularização Assistida
+-- ═══════════════════════════════════════════════════════════════════════════
+create table if not exists esocial_dashboard.plano_implantacao (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references esocial_dashboard.empresas(id) on delete cascade,
+  respostas_assistente jsonb default '{}'::jsonb,
+  trilha_recomendada text,
+  respostas_arvore jsonb default '{}'::jsonb,
+  resultado_arvore text,
+  atualizado_em timestamptz default now(),
+  unique (empresa_id)
+);
+
+create table if not exists esocial_dashboard.entrevista_abertura (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references esocial_dashboard.empresas(id) on delete cascade,
+  pergunta_id text not null,
+  resposta text,
+  entrevistado text,
+  cargo text,
+  data_entrevista date,
+  evidencia text,
+  observacao text,
+  contradicao boolean default false,
+  nova_entrevista boolean default false,
+  atualizado_em timestamptz default now(),
+  unique (empresa_id, pergunta_id)
+);
+
+create index if not exists idx_plano_implantacao_empresa on esocial_dashboard.plano_implantacao(empresa_id);
+create index if not exists idx_entrevista_abertura_empresa on esocial_dashboard.entrevista_abertura(empresa_id);
+
+grant all on esocial_dashboard.plano_implantacao to anon, authenticated, service_role;
+grant all on esocial_dashboard.entrevista_abertura to anon, authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- MÓDULO: Admissão Transparente + SST por funcionário
+-- ═══════════════════════════════════════════════════════════════════════════
+create table if not exists esocial_dashboard.funcionarios (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references esocial_dashboard.empresas(id) on delete cascade,
+  nome text not null,
+  cpf text,
+  funcao text,
+  cbo text,
+  unidade text,
+  contratante_nome text,
+  gestor_prestadora text,
+  preposto text,
+  status text default 'Candidato' check (status in ('Candidato', 'Entrevistado', 'Contratado', 'Desligado')),
+  data_admissao date,
+  criado_em timestamptz default now(),
+  atualizado_em timestamptz default now()
+);
+
+create table if not exists esocial_dashboard.entrevista_admissao (
+  id uuid primary key default gen_random_uuid(),
+  funcionario_id uuid not null references esocial_dashboard.funcionarios(id) on delete cascade,
+  respostas jsonb default '{}'::jsonb,
+  duvidas text,
+  frases_proibidas_usadas jsonb default '[]'::jsonb,
+  ciencia_registrada boolean default false,
+  entrevistador text,
+  data_entrevista date,
+  atualizado_em timestamptz default now(),
+  unique (funcionario_id)
+);
+
+create table if not exists esocial_dashboard.sst_funcionario (
+  id uuid primary key default gen_random_uuid(),
+  funcionario_id uuid not null references esocial_dashboard.funcionarios(id) on delete cascade,
+  aso_tipo text,
+  aso_data date,
+  aso_validade date,
+  epi_entregue text,
+  treinamentos text,
+  riscos text,
+  atualizado_em timestamptz default now(),
+  unique (funcionario_id)
+);
+
+create index if not exists idx_funcionarios_empresa on esocial_dashboard.funcionarios(empresa_id);
+create index if not exists idx_entrevista_admissao_func on esocial_dashboard.entrevista_admissao(funcionario_id);
+create index if not exists idx_sst_funcionario_func on esocial_dashboard.sst_funcionario(funcionario_id);
+
+grant all on esocial_dashboard.funcionarios to anon, authenticated, service_role;
+grant all on esocial_dashboard.entrevista_admissao to anon, authenticated, service_role;
+grant all on esocial_dashboard.sst_funcionario to anon, authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SUPERSEDES the 3 tables above: o app não cadastra mais funcionário por
+-- funcionário. Vira um guia único por empresa (prestadora), orientando o
+-- Departamento Pessoal sobre função/CBO compatível com o objeto do contrato
+-- de prestação de serviços — não um cadastro de pessoas.
+-- As 3 tabelas acima ficam sem uso pelo app a partir de agora; podem ser
+-- removidas manualmente (drop table) se você preferir, não é obrigatório.
+-- ═══════════════════════════════════════════════════════════════════════════
+create table if not exists esocial_dashboard.admissao_orientacao (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references esocial_dashboard.empresas(id) on delete cascade,
+  contratante_nome text,
+  unidade text,
+  gestor_prestadora text,
+  preposto text,
+  objeto_contrato text,
+  mapeamento_funcoes jsonb default '[]'::jsonb,
+  checklist jsonb default '{}'::jsonb,
+  atualizado_em timestamptz default now(),
+  unique (empresa_id)
+);
+
+create index if not exists idx_admissao_orientacao_empresa
+  on esocial_dashboard.admissao_orientacao(empresa_id);
+
+grant all on esocial_dashboard.admissao_orientacao to anon, authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Marcar um item do Checklist Operacional como "Pendente" cria automaticamente
+-- uma ação vinculada no Plano de Ação 5W2H. Esta coluna evita duplicar a ação
+-- caso o item seja marcado/desmarcado várias vezes.
+-- ═══════════════════════════════════════════════════════════════════════════
+alter table esocial_dashboard.plano_acao_5w2h
+  add column if not exists origem_checklist_item_id text;
+
+create index if not exists idx_plano_origem_checklist
+  on esocial_dashboard.plano_acao_5w2h(empresa_id, origem_checklist_item_id);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DRE GERENCIAL — indicador simplificado de autonomia financeira da prestadora
+-- (receita de serviço × folha+encargos × outras despesas, por competência)
+-- ═══════════════════════════════════════════════════════════════════════════
+create table if not exists esocial_dashboard.dre_gerencial (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references esocial_dashboard.empresas(id) on delete cascade,
+  competencia text not null,
+  receita_servico numeric default 0,
+  despesa_pessoal numeric default 0,
+  despesa_geral numeric default 0,
+  observacao text,
+  criado_em timestamptz default now(),
+  atualizado_em timestamptz default now(),
+  unique (empresa_id, competencia)
+);
+
+create index if not exists idx_dre_gerencial_empresa on esocial_dashboard.dre_gerencial(empresa_id);
+
+grant all on esocial_dashboard.dre_gerencial to anon, authenticated, service_role;

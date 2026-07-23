@@ -4,6 +4,7 @@ Painel Gerencial de Folha de Pagamento — eSocial
 Departamento Pessoal · Contador de Padaria
 """
 import io, re, os, json, zipfile
+from urllib.parse import quote as _urlquote
 from datetime import date, datetime
 import pandas as pd
 import streamlit as st
@@ -662,6 +663,47 @@ PLANO_5W2H_MODELO = [
      "quanto_custa": "R$ 0", "prioridade": "Baixa", "status": "Pendente"},
 ]
 
+# ── ADMISSÃO & TERCEIRIZAÇÃO — guia de orientação (por empresa, não por pessoa) ──
+CHECKLIST_ALINHAMENTO_FUNCAO = [
+    "A função a ser registrada no eSocial/CTPS reflete o serviço contratado pela prestadora "
+    "— e não a atividade-fim do tomador?",
+    "Existe cláusula no contrato de prestação de serviços que ampare especificamente esta função?",
+    "A prestadora exerce direção técnica e supervisão real sobre quem exercerá essa função "
+    "(e não o tomador)?",
+    "O gestor/preposto da prestadora foi identificado e apresentado ao candidato antes da admissão?",
+    "A entrevista de admissão foi conduzida evitando as frases proibidas (veja abaixo)?",
+    "O candidato recebeu o termo de ciência sobre a relação entre as duas empresas?",
+    "O exame admissional (ASO) foi agendado antes do início das atividades?",
+    "Uniforme, crachá e e-mail a serem usados identificam a prestadora — não o tomador?",
+    "O contrato de trabalho foi assinado com a prestadora como empregadora antes do início efetivo?",
+]
+
+PERGUNTAS_CANDIDATO = [
+    "Compreendeu qual empresa será sua empregadora?",
+    "Compreendeu onde realizará o trabalho?",
+    "Compreendeu quem será seu gestor?",
+    "Possui disponibilidade para atuar no local informado?",
+    "Compreendeu a função e as atividades?",
+    "Possui experiência?",
+    "Possui restrições para os riscos apresentados?",
+    "Compreendeu a jornada?",
+    "Compreendeu os benefícios?",
+    "Sabe a quem deverá solicitar férias, folgas e ajustes?",
+    "Foi informado sobre uniforme, EPI e treinamentos?",
+    "Possui dúvidas sobre a relação entre as empresas?",
+]
+
+FRASES_PROIBIDAS_ENTREVISTA = [
+    "Você será funcionário da [contratante], mas registrado em outra empresa.",
+    "É tudo a mesma empresa.",
+    "O registro é só uma formalidade.",
+    "Quem manda é o gerente da [contratante].",
+    "A empresa da carteira serve só para pagar a folha.",
+    "A contratação é feita assim para pagar menos imposto.",
+]
+
+ASO_TIPO_OPCOES = ["Admissional", "Periódico", "Mudança de risco", "Retorno ao trabalho", "Demissional"]
+
 _RISK_COLOR = {"critico": "#c53030", "alto": "#c05621", "medio": "#975a16"}
 _RISK_LABEL = {"critico": "CRÍTICO", "alto": "ALTO", "medio": "MÉDIO"}
 _PAPEL_OPCOES = ["Prestadora", "Tomadora", "Ambas"]
@@ -742,6 +784,35 @@ def _docs_salvar(empresa_id, item_id, arquivo):
 def _docs_remover(empresa_id, item_id, nome):
     db.docs_remover(empresa_id, item_id, nome)
 
+def _dossie_slug(texto, maxlen=60):
+    """Nome de pasta/arquivo legível — sem caracteres inválidos em Windows/zip."""
+    texto = re.sub(r'[\\/:*?"<>|]', '-', texto or "").strip()
+    texto = re.sub(r'\s+', ' ', texto)
+    texto = texto[:maxlen].rstrip(" .-")
+    return texto or "item"
+
+
+def _dossie_nome_original(nome_arquivo):
+    """Remove o prefixo de timestamp (usado só para evitar colisão no Storage)."""
+    return nome_arquivo.split("__", 1)[-1] if "__" in nome_arquivo else nome_arquivo
+
+
+def _dossie_caminho_unico(usados, pasta, nome):
+    """Evita sobrescrever arquivos de mesmo nome dentro da mesma pasta do zip."""
+    base, ext = os.path.splitext(nome)
+    candidato, i = nome, 2
+    while f"{pasta}/{candidato}" in usados:
+        candidato = f"{base} ({i}){ext}"
+        i += 1
+    usados.add(f"{pasta}/{candidato}")
+    return candidato
+
+
+def _dossie_html_escape(s):
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        .replace('"', "&quot;"))
+
+
 def _gerar_dossie_zip(empresa):
     buf = io.BytesIO()
     empresa_id = empresa["id"]
@@ -755,56 +826,182 @@ def _gerar_dossie_zip(empresa):
     plano = _plano_carregar(empresa_id)
     docs_mapa = _docs_mapa(empresa_id)
     painel, total_alto, total_medio, total_resp, nivel_geral = _calcular_painel_risco(respostas)
+    _nivel_cor = {"ALTO": "#c53030", "MÉDIO": "#975a16", "BAIXO": "#276749"}.get(nivel_geral, "#718096")
+    _e = _dossie_html_escape
+
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("empresa.json", json.dumps(empresa, ensure_ascii=False, indent=2, default=str))
-        zf.writestr("diagnostico.json", json.dumps(diag, ensure_ascii=False, indent=2, default=str))
-        zf.writestr("diagnostico_risco.json", json.dumps(risco, ensure_ascii=False, indent=2, default=str))
-        zf.writestr("plano_5w2h.json", json.dumps(plano, ensure_ascii=False, indent=2, default=str))
+        _pastas_usadas = set()
+
+        def _copiar_docs(contexto, pasta):
+            """Copia os documentos de um item para uma pasta legível, sem prefixo de timestamp,
+            e devolve a lista de (nome_exibido, caminho_no_zip) para linkar no relatório."""
+            links = []
+            for nome_storage in docs_mapa.get(contexto, []):
+                nome_limpo = _dossie_nome_original(nome_storage)
+                nome_final = _dossie_caminho_unico(_pastas_usadas, pasta, nome_limpo)
+                caminho = f"{pasta}/{nome_final}"
+                zf.writestr(caminho, db.docs_baixar(empresa_id, contexto, nome_storage))
+                links.append((nome_final, caminho))
+            return links
+
+        # ── DIAGNÓSTICO DE RISCO — coleta estruturada (usada no HTML e no TXT) ──
+        _risco_html = []
+        _risco_txt = ["\n=== DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ==="]
+        for a_idx, area in enumerate(DIAGNOSTICO_AREAS, start=1):
+            p = painel[area["id"]]
+            _risco_txt.append(f"\n{area['titulo']} — Alto:{p['alto']} Médio:{p['medio']} Baixo:{p['baixo']}")
+            _perguntas_html = []
+            for q_idx, (qid, categoria, pergunta, severidade, base_legal, acao) in enumerate(
+                    area["perguntas"], start=1):
+                resp = respostas.get(qid, "— não respondido —")
+                pasta_item = (f"Diagnostico de Risco/{a_idx:02d} - {_dossie_slug(area['titulo'])}/"
+                              f"{q_idx:02d} - {_dossie_slug(pergunta)}")
+                links = _copiar_docs(f"risco_{qid}", pasta_item)
+                _risco_txt.append(f"  [{resp}] {pergunta} ({base_legal})"
+                                  f"{f' — {len(links)} doc(s) anexado(s)' if links else ''}")
+                if obs_risco.get(qid):
+                    _risco_txt.append(f"      Obs.: {obs_risco[qid]}")
+                _perguntas_html.append({
+                    "pergunta": pergunta, "resposta": resp, "base_legal": base_legal,
+                    "observacao": obs_risco.get(qid), "links": links,
+                })
+            _risco_html.append({"titulo": area["titulo"], "painel": p, "perguntas": _perguntas_html})
+
+        # ── CHECKLIST OPERACIONAL ──
+        _checklist_html = []
+        _checklist_txt = ["\n=== CHECKLIST OPERACIONAL ==="]
+        for s_idx, sec in enumerate(CONFORMIDADE_SECOES, start=1):
+            _checklist_txt.append(f"\n{sec['icone']} {sec['titulo']}")
+            _itens_html = []
+            for i_idx, (iid, risco_item, texto, nota) in enumerate(sec["itens"], start=1):
+                status = "Pendente" if pend_checklist.get(iid) else \
+                    ("Verificado" if itens_estado.get(iid) else "Não verificado")
+                marca = {"Pendente": "[PENDENTE]", "Verificado": "[X]"}.get(status, "[ ]")
+                pasta_item = (f"Checklist Operacional/{s_idx:02d} - {_dossie_slug(sec['titulo'])}/"
+                              f"{i_idx:02d} - {_dossie_slug(texto)}")
+                links = _copiar_docs(iid, pasta_item)
+                _checklist_txt.append(f"  {marca} ({_RISK_LABEL[risco_item]}) {texto}"
+                                      f"{f' — {len(links)} doc(s) anexado(s)' if links else ''}")
+                if obs_checklist.get(iid):
+                    _checklist_txt.append(f"      Obs.: {obs_checklist[iid]}")
+                _itens_html.append({
+                    "texto": texto, "risco": risco_item, "status": status,
+                    "observacao": obs_checklist.get(iid), "links": links,
+                })
+            _checklist_html.append({"titulo": sec["titulo"], "icone": sec["icone"], "itens": _itens_html})
+
+        # ── PLANO DE AÇÃO 5W2H ──
+        _plano_txt = ["\n=== PLANO DE AÇÃO 5W2H ==="]
+        for item in plano:
+            _plano_txt.append(f"  [{item.get('status','Pendente')}] ({item.get('prioridade','—')}) "
+                              f"{item.get('o_que','')}")
+            if item.get("por_que"):
+                _plano_txt.append(f"      Por quê: {item['por_que']}")
+            if item.get("como"):
+                _plano_txt.append(f"      Como: {item['como']}")
+
+        # ── relatorio.txt (fallback simples) ──
         linhas = [f"DOSSIÊ DE CONFORMIDADE — {empresa.get('razao_social','')}",
                   f"CNPJ: {empresa.get('cnpj') or '—'}  ·  Papel: {empresa.get('papel','—')}  ·  "
                   f"Situação: {empresa.get('situacao','—')}",
                   f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", "",
                   f"NÍVEL GERAL DE RISCO (sugestão preliminar): {nivel_geral}",
                   f"Total Alto: {total_alto}  ·  Total Médio: {total_medio}  ·  Respondidos: {total_resp}", ""]
-        linhas.append("\n=== DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ===")
-        for area in DIAGNOSTICO_AREAS:
-            p = painel[area["id"]]
-            linhas.append(f"\n{area['titulo']} — Alto:{p['alto']} Médio:{p['medio']} Baixo:{p['baixo']}")
-            for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
-                resp = respostas.get(qid, "— não respondido —")
-                ndocs_r = len(docs_mapa.get(f"risco_{qid}", []))
-                linhas.append(f"  [{resp}] {pergunta} ({base_legal})"
-                              f"{f' — {ndocs_r} doc(s) anexado(s)' if ndocs_r else ''}")
-                if obs_risco.get(qid):
-                    linhas.append(f"      Obs.: {obs_risco[qid]}")
-        linhas.append("\n=== CHECKLIST OPERACIONAL ===")
-        for sec in CONFORMIDADE_SECOES:
-            linhas.append(f"\n{sec['icone']} {sec['titulo']}")
-            for iid, risco_item, texto, nota in sec["itens"]:
-                marca = "[PENDENTE]" if pend_checklist.get(iid) else ("[X]" if itens_estado.get(iid) else "[ ]")
-                ndocs = len(docs_mapa.get(iid, []))
-                linhas.append(f"  {marca} ({_RISK_LABEL[risco_item]}) {texto}"
-                              f"{f' — {ndocs} doc(s) anexado(s)' if ndocs else ''}")
-                if obs_checklist.get(iid):
-                    linhas.append(f"      Obs.: {obs_checklist[iid]}")
-        linhas.append("\n=== PLANO DE AÇÃO 5W2H ===")
-        for item in plano:
-            linhas.append(f"  [{item.get('status','Pendente')}] ({item.get('prioridade','—')}) "
-                          f"{item.get('o_que','')}")
-            if item.get("por_que"):
-                linhas.append(f"      Por quê: {item['por_que']}")
-            if item.get("como"):
-                linhas.append(f"      Como: {item['como']}")
+        linhas += _risco_txt + _checklist_txt + _plano_txt
         zf.writestr("relatorio.txt", "\n".join(linhas))
-        for sec in CONFORMIDADE_SECOES:
-            for iid, risco_item, texto, nota in sec["itens"]:
-                for nome in docs_mapa.get(iid, []):
-                    zf.writestr(f"documentos/checklist_{iid}/{nome}", db.docs_baixar(empresa_id, iid, nome))
-        for area in DIAGNOSTICO_AREAS:
-            for qid, categoria, pergunta, severidade, base_legal, acao in area["perguntas"]:
-                for nome in docs_mapa.get(f"risco_{qid}", []):
-                    zf.writestr(f"documentos/risco_{qid}/{nome}",
-                               db.docs_baixar(empresa_id, f"risco_{qid}", nome))
+
+        # ── relatorio.html (navegação com links para os documentos) ──
+        _risk_badge = {"critico": "#c53030", "alto": "#c05621", "medio": "#975a16"}
+        _status_badge = {"Verificado": "#276749", "Pendente": "#c05621", "Não verificado": "#718096"}
+        _html = [f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
+<title>Dossiê — {_e(empresa.get('razao_social',''))}</title>
+<style>
+ body{{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:0 auto;
+      padding:32px 20px 80px;color:#1a202c;line-height:1.55}}
+ h1{{font-size:22px;margin-bottom:2px}} h2{{font-size:17px;margin-top:40px;border-bottom:2px solid #e2e8f0;
+      padding-bottom:6px}} h3{{font-size:14px;margin:20px 0 8px;color:#2d3748}}
+ .meta{{color:#718096;font-size:13px}}
+ .banner{{background:{_nivel_cor}18;border:1px solid {_nivel_cor}55;color:{_nivel_cor};
+      border-radius:8px;padding:10px 16px;font-weight:700;margin:14px 0}}
+ .item{{border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin:8px 0}}
+ .badge{{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;
+      margin-right:4px;color:#fff}}
+ .obs{{font-size:13px;color:#4a5568;margin-top:6px;font-style:italic}}
+ .docs{{font-size:12px;margin-top:6px}} .docs a{{color:#2a5080;text-decoration:none}}
+ .docs a:hover{{text-decoration:underline}}
+ .toc{{font-size:13px}} .toc a{{color:#2a5080;text-decoration:none}}
+</style></head><body>
+<h1>🛡️ Dossiê de Conformidade — {_e(empresa.get('razao_social',''))}</h1>
+<p class="meta">CNPJ: {_e(empresa.get('cnpj') or '—')} · Papel: {_e(empresa.get('papel','—'))} ·
+Situação: {_e(empresa.get('situacao','—'))} · Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+<div class="banner">Nível geral de risco (sugestão preliminar): {_e(nivel_geral)} — {total_alto} alto(s),
+{total_medio} médio(s), {total_resp} pergunta(s) respondida(s)</div>
+<p class="toc"><a href="#risco">🔍 Diagnóstico de Risco</a> ·
+<a href="#checklist">📋 Checklist Operacional</a> ·
+<a href="#plano">🎯 Plano de Ação 5W2H</a></p>
+"""]
+
+        _html.append('<h2 id="risco">🔍 Diagnóstico de Risco</h2>')
+        for area in _risco_html:
+            p = area["painel"]
+            _html.append(f"<h3>{_e(area['titulo'])} — 🔴 {p['alto']} · 🟡 {p['medio']} · 🟢 {p['baixo']}</h3>")
+            for q in area["perguntas"]:
+                _html.append(f'<div class="item"><b>{_e(q["pergunta"])}</b> '
+                             f'<span class="meta">({_e(q["base_legal"])})</span><br>'
+                             f'Resposta: <b>{_e(q["resposta"])}</b>')
+                if q["observacao"]:
+                    _html.append(f'<div class="obs">📝 {_e(q["observacao"])}</div>')
+                if q["links"]:
+                    _html.append('<div class="docs">📎 ' + " · ".join(
+                        f'<a href="{_urlquote(caminho)}">{_e(nome)}</a>' for nome, caminho in q["links"]) + '</div>')
+                _html.append('</div>')
+
+        _html.append('<h2 id="checklist">📋 Checklist Operacional</h2>')
+        for sec in _checklist_html:
+            _html.append(f"<h3>{sec['icone']} {_e(sec['titulo'])}</h3>")
+            for item in sec["itens"]:
+                _bcor = _risk_badge.get(item["risco"], "#718096")
+                _scor = _status_badge.get(item["status"], "#718096")
+                _html.append(f'<div class="item"><b>{_e(item["texto"])}</b><br>'
+                             f'<span class="badge" style="background:{_bcor}">'
+                             f'{_e(_RISK_LABEL[item["risco"]])}</span>'
+                             f'<span class="badge" style="background:{_scor}">{_e(item["status"])}</span>')
+                if item["observacao"]:
+                    _html.append(f'<div class="obs">📝 {_e(item["observacao"])}</div>')
+                if item["links"]:
+                    _html.append('<div class="docs">📎 ' + " · ".join(
+                        f'<a href="{_urlquote(caminho)}">{_e(nome)}</a>'
+                        for nome, caminho in item["links"]) + '</div>')
+                _html.append('</div>')
+
+        _html.append('<h2 id="plano">🎯 Plano de Ação 5W2H</h2>')
+        if not plano:
+            _html.append('<p class="meta">Nenhuma ação cadastrada.</p>')
+        for a in plano:
+            _pcor = {"Altíssima": "#c53030", "Alta": "#c05621", "Média": "#975a16",
+                    "Baixa": "#276749"}.get(a.get("prioridade"), "#718096")
+            _scor2 = {"Pendente": "#718096", "Em andamento": "#2a5080",
+                     "Concluído": "#276749"}.get(a.get("status"), "#718096")
+            _html.append(f'<div class="item"><b>{_e(a.get("o_que"))}</b><br>'
+                         f'<span class="badge" style="background:{_pcor}">'
+                         f'{_e(a.get("prioridade","—"))}</span>'
+                         f'<span class="badge" style="background:{_scor2}">'
+                         f'{_e(a.get("status","Pendente"))}</span>')
+            if a.get("por_que"):
+                _html.append(f'<div class="obs">Por quê: {_e(a["por_que"])}</div>')
+            if a.get("como"):
+                _html.append(f'<div class="obs">Como: {_e(a["como"])}</div>')
+            _html.append('</div>')
+
+        _html.append("</body></html>")
+        zf.writestr("relatorio.html", "\n".join(_html))
+
+        # ── dados brutos (para backup/importação, não para leitura humana) ──
+        zf.writestr("dados/empresa.json", json.dumps(empresa, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("dados/diagnostico_risco.json", json.dumps(risco, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("dados/checklist.json", json.dumps(diag, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("dados/plano_5w2h.json", json.dumps(plano, ensure_ascii=False, indent=2, default=str))
+
     buf.seek(0)
     return buf
 
@@ -916,6 +1113,309 @@ def render_empresas_lista():
                 st.session_state.conf_empresa_id = emp["id"]
                 st.rerun()
 
+# ── ADMISSÃO & TERCEIRIZAÇÃO — guia de orientação (por empresa, não por pessoa) ──
+def _render_orientacao_admissao(empresa, emp_id):
+    st.caption("Este guia não cadastra pessoas — ele orienta o Departamento Pessoal e o cliente "
+              "sobre como estruturar QUALQUER admissão nesta prestadora sem caracterizar vínculo "
+              "direto com o tomador. A função registrada precisa refletir o serviço contratado "
+              "pela prestadora — nunca a atividade-fim do tomador.")
+
+    _guia = db.orientacao_admissao_carregar(emp_id) or {}
+
+    # ── RELAÇÃO ENTRE A PRESTADORA E O TOMADOR ──
+    st.markdown("##### 🏗️ Relação entre a prestadora e o tomador")
+    with st.form(f"form_relacao_{emp_id}"):
+        rc1, rc2 = st.columns(2)
+        contratante_nome = rc1.text_input("Empresa contratante (tomadora)",
+                                          value=_guia.get("contratante_nome") or "")
+        unidade = rc2.text_input("Unidade(s) onde a prestadora atua",
+                                 value=_guia.get("unidade") or "")
+        rc3, rc4 = st.columns(2)
+        gestor = rc3.text_input("Gestor(a) da prestadora responsável no local",
+                                value=_guia.get("gestor_prestadora") or "")
+        preposto = rc4.text_input("Preposto(a)", value=_guia.get("preposto") or "")
+        objeto_contrato = st.text_area(
+            "Objeto do contrato de prestação de serviços",
+            value=_guia.get("objeto_contrato") or "",
+            placeholder="Ex.: produção e fornecimento de produtos de panificação e confeitaria, "
+                       "por encomenda, para estabelecimentos do grupo contratante.",
+            help="Descreva o SERVIÇO que a prestadora entrega — é a partir disso que se avalia se "
+                "uma função é compatível ou é, na prática, mão de obra cedida.")
+        if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
+            _dados = dict(_guia)
+            _dados.update({
+                "contratante_nome": contratante_nome.strip(), "unidade": unidade.strip(),
+                "gestor_prestadora": gestor.strip(), "preposto": preposto.strip(),
+                "objeto_contrato": objeto_contrato.strip(),
+            })
+            db.orientacao_admissao_salvar(emp_id, _dados)
+            st.success("Salvo!")
+            st.rerun()
+
+    st.divider()
+
+    # ── MAPEAMENTO DE FUNÇÕES ──
+    st.markdown("##### 🗺️ Mapeamento de funções — atividade real × registro na prestadora")
+    st.caption("Antes de admitir alguém nesta prestadora, traduza a atividade que a pessoa vai "
+              "exercer no dia a dia do tomador para uma função/CBO compatível com o serviço "
+              "contratado. Mudar só o nome no papel não resolve — a prestadora precisa de fato "
+              "dirigir e supervisionar o trabalho.")
+    _mapeamento = list(_guia.get("mapeamento_funcoes") or [])
+
+    if _mapeamento:
+        for i, m in enumerate(_mapeamento):
+            with st.container(border=True):
+                mc1, mc2 = st.columns([5, 1])
+                with mc1:
+                    st.markdown(f"**No tomador:** {m.get('funcao_tomador','—')}  \n"
+                              f"**Registrar na prestadora:** {m.get('funcao_prestadora','—')}"
+                              f"{' · CBO ' + m['cbo'] if m.get('cbo') else ''}")
+                    if m.get("observacao"):
+                        st.caption(m["observacao"])
+                with mc2:
+                    if st.button("🗑️", key=f"rm_map_{emp_id}_{i}"):
+                        _mapeamento.pop(i)
+                        db.orientacao_admissao_salvar(emp_id, dict(_guia, mapeamento_funcoes=_mapeamento))
+                        st.rerun()
+    else:
+        st.caption("Nenhum mapeamento cadastrado ainda.")
+
+    with st.expander("➕ Adicionar mapeamento de função"):
+        with st.form(f"form_map_{emp_id}", clear_on_submit=True):
+            fc1, fc2 = st.columns(2)
+            funcao_tomador = fc1.text_input("Atividade exercida no tomador",
+                                            placeholder="Ex.: Padeiro")
+            funcao_prestadora = fc2.text_input(
+                "Função a registrar na prestadora",
+                placeholder="Ex.: Operador de produção de panificação (terceirizado)")
+            fc3, fc4 = st.columns(2)
+            cbo = fc3.text_input("CBO sugerido (confirme na tabela oficial)")
+            observacao = fc4.text_input("Observação / alerta")
+            if st.form_submit_button("Adicionar", type="primary", use_container_width=True):
+                if funcao_tomador.strip() and funcao_prestadora.strip():
+                    _mapeamento.append({
+                        "funcao_tomador": funcao_tomador.strip(),
+                        "funcao_prestadora": funcao_prestadora.strip(),
+                        "cbo": cbo.strip(), "observacao": observacao.strip(),
+                    })
+                    db.orientacao_admissao_salvar(emp_id, dict(_guia, mapeamento_funcoes=_mapeamento))
+                    st.rerun()
+                else:
+                    st.error("Preencha ao menos a atividade no tomador e a função sugerida.")
+
+    st.divider()
+
+    # ── CHECKLIST ANTES DE ADMITIR ──
+    st.markdown("##### ✅ Checklist antes de admitir alguém nesta função")
+    _checklist = dict(_guia.get("checklist") or {})
+    _resp_atual = {}
+    for i, item in enumerate(CHECKLIST_ALINHAMENTO_FUNCAO):
+        _resp_atual[str(i)] = st.checkbox(item, value=_checklist.get(str(i), False),
+                                          key=f"chk_alinh_{emp_id}_{i}")
+    _total_ok = sum(1 for v in _resp_atual.values() if v)
+    st.progress(_total_ok / len(CHECKLIST_ALINHAMENTO_FUNCAO))
+    st.caption(f"{_total_ok}/{len(CHECKLIST_ALINHAMENTO_FUNCAO)} itens confirmados")
+    if st.button("💾 Salvar checklist", key=f"salvar_chk_alinh_{emp_id}", use_container_width=True):
+        db.orientacao_admissao_salvar(emp_id, dict(_guia, checklist=_resp_atual))
+        st.success("Checklist salvo!")
+        st.rerun()
+
+    st.divider()
+
+    # ── MODELOS PARA O DEPARTAMENTO PESSOAL ──
+    st.markdown("##### 📄 Modelos para o Departamento Pessoal")
+    st.caption("Modelos genéricos — preencha [FUNÇÃO] e [CANDIDATO] a cada admissão, conforme o "
+              "mapeamento acima. Todo modelo exige validação jurídica antes de uso.")
+
+    _empregadora = empresa.get("razao_social") or "[EMPREGADORA]"
+    _contratante = _guia.get("contratante_nome") or "[CONTRATANTE]"
+    _unidade_g = _guia.get("unidade") or "[LOCAL]"
+    _gestor_g = _guia.get("gestor_prestadora") or "[NOME/CARGO DA PRESTADORA]"
+    _preposto_g = _guia.get("preposto") or "—"
+
+    tab_fala, tab_contrato, tab_termo = st.tabs(
+        ["🗣️ Roteiro de Entrevista", "📄 Contrato de Trabalho", "📝 Termo de Ciência"])
+
+    with tab_fala:
+        _fala = (
+            f"\"Esta vaga é para contratação pela empresa {_empregadora}. Caso contratado, seu "
+            f"registro, salário, benefícios e gestão trabalhista serão de responsabilidade dessa "
+            f"empresa.\n\n"
+            f"A atividade será executada no estabelecimento da empresa {_contratante}, localizado "
+            f"em {_unidade_g}, dentro de um contrato de prestação de serviços existente entre as "
+            f"empresas.\n\n"
+            f"Sua função será [FUNÇÃO — conforme mapeamento acima], e seu gestor trabalhista será "
+            f"{_gestor_g}. As demandas do local deverão seguir o fluxo estabelecido entre a "
+            f"contratante e o preposto da empregadora.\n\n"
+            f"As regras de segurança, higiene, acesso e funcionamento do estabelecimento "
+            f"contratante deverão ser cumpridas.\"\n\n"
+            "PERGUNTAS DE VERIFICAÇÃO DE ENTENDIMENTO (confirme uma a uma com o candidato):\n"
+            + "\n".join(f"- {p}" for p in PERGUNTAS_CANDIDATO) + "\n\n"
+            "⚠️ FRASES QUE NUNCA DEVEM SER USADAS NESTA ENTREVISTA:\n"
+            + "\n".join(f"- \"{f}\"" for f in FRASES_PROIBIDAS_ENTREVISTA) + "\n\n"
+            f"Lembrete de SST: todo admitido nesta função deve ter ASO "
+            f"({', '.join(ASO_TIPO_OPCOES[:1])}) agendado antes do início das atividades."
+        )
+        st.text_area("Roteiro completo", value=_fala, height=420, key=f"fala_{emp_id}_{hash(_fala)}")
+        st.download_button("⬇️ Baixar roteiro de entrevista", data=_fala,
+                           file_name="roteiro_entrevista_admissao.txt", mime="text/plain",
+                           use_container_width=True)
+
+    with tab_contrato:
+        st.markdown("<div style='background:#fff5f5;border:1px solid #fc8181;color:#c53030;"
+                   "border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px'>"
+                   "⚠️ <b>Este modelo deve ser validado pelo jurídico trabalhista antes de uso.</b> "
+                   "A cláusula não corrige uma operação na qual a direção real seja exercida "
+                   "integralmente pela contratante.</div>", unsafe_allow_html=True)
+        _clausula = (
+            f"O EMPREGADO é contratado pela EMPREGADORA ({_empregadora}) para exercer a função de "
+            f"[FUNÇÃO — conforme mapeamento], podendo executar suas atividades nas dependências da "
+            f"EMPREGADORA ou em estabelecimentos de clientes com os quais esta mantenha contrato de "
+            f"prestação de serviços, inclusive, inicialmente, no estabelecimento da empresa "
+            f"{_contratante}, situado em {_unidade_g}.\n\n"
+            f"A execução dos serviços nas dependências da CONTRATANTE não altera a condição da "
+            f"EMPREGADORA como responsável pela contratação, remuneração, gestão trabalhista e "
+            f"direção funcional do EMPREGADO.\n\n"
+            f"O EMPREGADO deverá cumprir as normas de acesso, segurança, higiene, salubridade, "
+            f"proteção de dados e conduta aplicáveis ao estabelecimento em que atuar, sem prejuízo "
+            f"das orientações funcionais transmitidas pela EMPREGADORA por meio de seu gestor ou "
+            f"preposto ({_gestor_g})."
+        )
+        st.text_area("Cláusula-base (rascunho)", value=_clausula, height=280,
+                     key=f"clausula_{emp_id}_{hash(_clausula)}")
+        st.download_button("⬇️ Baixar rascunho para o jurídico", data=_clausula,
+                           file_name="clausula_contrato_modelo.txt", mime="text/plain",
+                           use_container_width=True)
+
+    with tab_termo:
+        st.markdown("<div style='background:#fffaf0;border:1px solid #f6ad55;color:#c05621;"
+                   "border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px'>"
+                   "⚠️ Este termo não substitui o contrato de trabalho, o registro, o ASO, os "
+                   "treinamentos ou a gestão real da empregadora — é complementar.</div>",
+                   unsafe_allow_html=True)
+        _termo = (
+            "TERMO DE CIÊNCIA SOBRE A EXECUÇÃO DE SERVIÇOS EM EMPRESA CONTRATANTE\n\n"
+            f"Empregadora: {_empregadora}\n"
+            f"Contratante: {_contratante}\n"
+            f"Empregado: [CANDIDATO]\n"
+            f"Função: [FUNÇÃO — conforme mapeamento]\n"
+            f"Unidade: {_unidade_g}\n"
+            f"Gestor da empregadora: {_gestor_g}\n"
+            f"Preposto: {_preposto_g}\n"
+            f"Data de início: [DATA]\n\n"
+            "O empregado declara estar ciente de que:\n\n"
+            "1. seu vínculo de emprego é mantido com a empresa empregadora;\n"
+            "2. salários, benefícios e obrigações trabalhistas são de responsabilidade da "
+            "empregadora;\n"
+            "3. as atividades serão executadas no estabelecimento da contratante;\n"
+            "4. solicitações de férias, folgas, alterações de jornada, advertências e demais "
+            "matérias trabalhistas serão tratadas pela empregadora;\n"
+            "5. deverá cumprir as normas de segurança, higiene, acesso e conduta do "
+            "estabelecimento;\n"
+            "6. deverá comunicar ao gestor da empregadora qualquer ordem incompatível, assédio, "
+            "risco, acidente ou desvio de função;\n"
+            "7. recebeu indicação dos canais de atendimento;\n"
+            "8. recebeu integração e orientações de SST;\n"
+            "9. sabe quem é seu gestor e seu preposto.\n"
+        )
+        st.text_area("Termo (rascunho)", value=_termo, height=340, key=f"termo_{emp_id}_{hash(_termo)}")
+        st.download_button("⬇️ Baixar termo de ciência", data=_termo,
+                           file_name="termo_ciencia_modelo.txt", mime="text/plain",
+                           use_container_width=True)
+
+# ── DRE GERENCIAL — a prestadora se sustenta com receita própria? ────────────
+def _render_dre_gerencial(empresa, emp_id):
+    st.caption("DRE gerencial simplificada da prestadora, por competência — para acompanhar se ela se "
+              "sustenta com receita própria de serviço ou depende de repasses/transferências do "
+              "tomador para cobrir a folha. Não substitui a contabilidade oficial (balancete/DRE "
+              "contábil) — é um indicador de autonomia financeira real.")
+
+    dre_key = f"dre_state_{emp_id}"
+    if dre_key not in st.session_state:
+        st.session_state[dre_key] = db.dre_listar(emp_id)
+    registros = st.session_state[dre_key]
+
+    if registros:
+        _tot_receita = sum(r.get("receita_servico") or 0 for r in registros)
+        _tot_pessoal = sum(r.get("despesa_pessoal") or 0 for r in registros)
+        _tot_geral = sum(r.get("despesa_geral") or 0 for r in registros)
+        _tot_resultado = _tot_receita - _tot_pessoal - _tot_geral
+        _margem_media = round(100 * _tot_resultado / _tot_receita, 1) if _tot_receita else None
+
+        _ultimo = sorted(registros, key=lambda r: r["competencia"])[-1]
+        _ultimo_resultado = ((_ultimo.get("receita_servico") or 0) - (_ultimo.get("despesa_pessoal") or 0)
+                             - (_ultimo.get("despesa_geral") or 0))
+
+        if _ultimo_resultado < 0:
+            st.markdown("<div style='background:#fff5f5;border:1px solid #fc8181;color:#c53030;"
+                       "border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px'>"
+                       f"🔴 A prestadora fechou <b>{_ultimo['competencia']}</b> com resultado negativo "
+                       f"({brl(_ultimo_resultado)}) — sinal de que não se sustenta com receita própria. "
+                       "Reforça o risco de confusão patrimonial/dependência do tomador (ver Checklist "
+                       "Operacional, seção 6 — Autonomia Financeira da Prestadora).</div>",
+                       unsafe_allow_html=True)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Receita acumulada", brl(_tot_receita))
+        m2.metric("Despesas acumuladas", brl(_tot_pessoal + _tot_geral))
+        m3.metric("Resultado acumulado", brl(_tot_resultado))
+        m4.metric("Margem média", f"{_margem_media}%" if _margem_media is not None else "—")
+        st.divider()
+
+    with st.expander("➕ Nova competência", expanded=not registros):
+        with st.form(f"form_dre_{emp_id}", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            competencia = c1.text_input("Competência", placeholder="Ex.: 2026-07")
+            receita = c2.number_input("Receita de serviço (nota emitida)", min_value=0.0,
+                                      step=100.0, format="%.2f")
+            c3, c4 = st.columns(2)
+            desp_pessoal = c3.number_input("Despesa de pessoal (folha + encargos)", min_value=0.0,
+                                           step=100.0, format="%.2f")
+            desp_geral = c4.number_input("Outras despesas gerais", min_value=0.0, step=100.0, format="%.2f")
+            obs = st.text_area("Observação", placeholder="Ex.: recebeu transferência da tomadora "
+                                                          "para cobrir caixa negativo")
+            if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
+                if competencia.strip():
+                    db.dre_upsert(emp_id, competencia.strip(), {
+                        "receita_servico": receita, "despesa_pessoal": desp_pessoal,
+                        "despesa_geral": desp_geral, "observacao": obs.strip(),
+                    })
+                    st.session_state[dre_key] = db.dre_listar(emp_id)
+                    st.success("Salvo!")
+                    st.rerun()
+                else:
+                    st.error("Informe a competência (ex.: 2026-07).")
+
+    if not registros:
+        st.info("Nenhuma competência lançada ainda.")
+        return
+
+    for r in sorted(registros, key=lambda x: x["competencia"], reverse=True):
+        receita = r.get("receita_servico") or 0
+        pessoal = r.get("despesa_pessoal") or 0
+        geral = r.get("despesa_geral") or 0
+        resultado = receita - pessoal - geral
+        margem = round(100 * resultado / receita, 1) if receita else None
+        _cor = "#276749" if resultado >= 0 else "#c53030"
+        with st.container(border=True):
+            rc1, rc2, rc3 = st.columns([2, 4, 1])
+            with rc1:
+                st.markdown(f"**{r['competencia']}**")
+            with rc2:
+                # "$" é escapado para &#36; — st.markdown trata $texto$ como LaTeX e engole o cifrão
+                _brl_md = lambda v: brl(v).replace("$", "&#36;")
+                st.markdown(f"Receita: {_brl_md(receita)} · Despesas: {_brl_md(pessoal + geral)} · "
+                           f"<span style='color:{_cor};font-weight:700'>Resultado: {_brl_md(resultado)}"
+                           f"{f' ({margem}%)' if margem is not None else ''}</span>",
+                           unsafe_allow_html=True)
+            with rc3:
+                if st.button("🗑️", key=f"del_dre_{r['id']}"):
+                    db.dre_remover(r["id"])
+                    st.session_state[dre_key] = db.dre_listar(emp_id)
+                    st.rerun()
+            if r.get("observacao"):
+                st.caption(f"📝 {r['observacao']}")
+
 # ── tela 2: ficha da empresa (dados + checklist + documentos) ────────────────
 def render_empresa_ficha(empresa):
     emp_id = empresa["id"]
@@ -981,7 +1481,7 @@ def render_empresa_ficha(empresa):
     docs_mapa = _docs_mapa(emp_id)  # 1 consulta só, evita N chamadas de rede por item
 
     outer_tabs = st.tabs(["🔍 Diagnóstico de Risco", "📋 Checklist Operacional", "🎯 Plano de Ação 5W2H",
-                         "📊 Simulações & Análises"])
+                         "📊 Simulações & Análises", "👥 Admissão & Terceirização", "💰 DRE Gerencial"])
 
     # ═══ ABA 1: DIAGNÓSTICO DE RISCO (Trabalhista / Previdenciário / Tributário) ═══
     with outer_tabs[0]:
@@ -1195,6 +1695,21 @@ def render_empresa_ficha(empresa):
                             st.session_state[pend_key][iid] = novo_pendente
                             _diagnostico_upsert(emp_id, iid, novo_check,
                                                 st.session_state[obs_key].get(iid), novo_pendente)
+                            if novo_pendente and not pendente_flag:
+                                _plano_atual = db.plano_listar(emp_id)
+                                _ja_existe = any(a.get("origem_checklist_item_id") == iid for a in _plano_atual)
+                                if not _ja_existe:
+                                    _prioridade_auto = {"critico": "Altíssima", "alto": "Alta",
+                                                        "medio": "Média"}.get(risco, "Média")
+                                    db.plano_inserir(emp_id, {
+                                        "o_que": f"Resolver pendência do checklist: {texto}",
+                                        "por_que": nota or f"Item marcado como pendente em "
+                                                          f"\"{sec['titulo']}\" no Checklist Operacional.",
+                                        "prioridade": _prioridade_auto, "status": "Pendente",
+                                        "origem_checklist_item_id": iid,
+                                    })
+                                    st.session_state[f"plano_state_{emp_id}"] = db.plano_listar(emp_id)
+                                    st.toast(f"✅ Ação criada no Plano de Ação: \"{texto[:60]}\"")
                             st.rerun()
 
                         _obs_atual = st.session_state[obs_key].get(iid, "")
@@ -1320,6 +1835,8 @@ def render_empresa_ficha(empresa):
                 top1, top2, top3 = st.columns([5, 3, 1])
                 with top1:
                     st.markdown(f"**{acao.get('o_que') or '(sem título)'}**")
+                    if acao.get("origem_checklist_item_id"):
+                        st.caption("🔗 Criada automaticamente a partir de um item pendente do Checklist Operacional")
                 with top2:
                     _pcor = _PRIO_COR.get(acao.get("prioridade"), "#718096")
                     _scor = _STATUS_COR.get(acao.get("status"), "#718096")
@@ -1434,6 +1951,14 @@ def render_empresa_ficha(empresa):
                     if ha4.button("🗑️", key=f"del_an_{a['id']}"):
                         db.analise_remover(a["id"], a.get("arquivo_origem_path"))
                         st.rerun()
+
+    # ═══ ABA 5: ADMISSÃO & TERCEIRIZAÇÃO (guia por empresa, não por pessoa) ═══
+    with outer_tabs[4]:
+        _render_orientacao_admissao(empresa, emp_id)
+
+    # ═══ ABA 6: DRE GERENCIAL (a prestadora se sustenta com receita própria?) ═══
+    with outer_tabs[5]:
+        _render_dre_gerencial(empresa, emp_id)
 
     st.divider()
     st.markdown("<div style='background:rgba(0,0,0,.03);border-radius:10px;padding:14px 18px;"

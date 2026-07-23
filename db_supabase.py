@@ -220,3 +220,34 @@ def analise_remover(row_id, arquivo_origem_path=None):
 def analise_baixar_arquivo(caminho):
     c = get_client()
     return c.storage.from_(BUCKET_FOLHA).download(caminho)
+
+
+# ── ADMISSÃO & TERCEIRIZAÇÃO — guia de orientação por empresa (não por pessoa) ──
+def orientacao_admissao_carregar(empresa_id):
+    c = get_client()
+    r = c.table("admissao_orientacao").select("*").eq("empresa_id", empresa_id).execute()
+    return r.data[0] if r.data else None
+
+
+def orientacao_admissao_salvar(empresa_id, dados):
+    c = get_client()
+    dados = dict(dados, empresa_id=empresa_id)
+    c.table("admissao_orientacao").upsert(dados, on_conflict="empresa_id").execute()
+
+
+# ── DRE GERENCIAL (por competência, por empresa) ─────────────────────────────
+def dre_listar(empresa_id):
+    c = get_client()
+    r = c.table("dre_gerencial").select("*").eq("empresa_id", empresa_id).order("competencia").execute()
+    return r.data or []
+
+
+def dre_upsert(empresa_id, competencia, dados):
+    c = get_client()
+    dados = dict(dados, empresa_id=empresa_id, competencia=competencia)
+    c.table("dre_gerencial").upsert(dados, on_conflict="empresa_id,competencia").execute()
+
+
+def dre_remover(row_id):
+    c = get_client()
+    c.table("dre_gerencial").delete().eq("id", row_id).execute()
