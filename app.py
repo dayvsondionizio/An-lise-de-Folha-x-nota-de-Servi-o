@@ -1818,15 +1818,21 @@ def _render_dre_exportar_pdf(empresa, registros):
     _ate = ec2.selectbox("Até", _competencias, index=len(_competencias) - 1,
                         format_func=lambda c: _labels[c], key="dre_pdf_ate")
 
+    st.markdown("**Responsável pela empresa**")
     rc1, rc2 = st.columns(2)
-    resp_empresa = rc1.text_input("Responsável pela empresa", key="dre_pdf_resp_empresa")
-    resp_contador = rc2.text_input("Responsável pelo contador", key="dre_pdf_resp_contador")
+    resp_empresa = rc1.text_input("Nome do representante", key="dre_pdf_resp_empresa")
+    cpf_empresa = rc2.text_input("CPF", key="dre_pdf_cpf_empresa", placeholder="000.000.000-00")
+
+    st.markdown("**Contador**")
+    cc1, cc2 = st.columns(2)
+    crc_contador = cc1.text_input("CRC", key="dre_pdf_crc_contador", placeholder="000000/O-0")
+    cpf_contador = cc2.text_input("CPF", key="dre_pdf_cpf_contador", placeholder="000.000.000-00")
 
     if st.button("📄 Gerar PDF da DRE", type="primary", use_container_width=True):
         if _de > _ate:
             st.error("O período \"De\" precisa ser antes (ou igual) ao \"Até\".")
-        elif not resp_empresa.strip() or not resp_contador.strip():
-            st.error("Informe os dois responsáveis antes de gerar o PDF.")
+        elif not resp_empresa.strip() or not crc_contador.strip():
+            st.error("Informe ao menos o nome do representante da empresa e o CRC do contador.")
         else:
             _selecionados = sorted([r for r in registros if _de <= r["competencia"] <= _ate],
                                    key=lambda r: r["competencia"])
@@ -1852,7 +1858,8 @@ def _render_dre_exportar_pdf(empresa, registros):
                 "tot_receita": _tot_receita, "tot_pessoal": _tot_pessoal, "tot_geral": _tot_geral,
                 "tot_impostos": _tot_impostos,
                 "tot_resultado": _tot_receita - _tot_pessoal - _tot_geral - _tot_impostos,
-                "responsavel_empresa": resp_empresa.strip(), "responsavel_contador": resp_contador.strip(),
+                "responsavel_empresa": resp_empresa.strip(), "cpf_empresa": cpf_empresa.strip(),
+                "crc_contador": crc_contador.strip(), "cpf_contador": cpf_contador.strip(),
             }
             with st.spinner("Montando PDF..."):
                 pdf = rpdf.gerar_dre(_ctx, empresa=empresa.get("razao_social") or "")

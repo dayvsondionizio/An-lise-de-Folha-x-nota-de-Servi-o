@@ -518,7 +518,8 @@ def gerar_dre(ctx, empresa=""):
     """DRE gerencial simplificada — receita de serviço x despesas x impostos, por competência.
     ctx: cnpj, periodo_label, linhas [{competencia, receita, despesa_pessoal, despesa_geral,
     impostos, resultado, despesas_detalhadas [{descricao, valor, categoria}]}], tot_receita,
-    tot_pessoal, tot_geral, tot_impostos, tot_resultado, responsavel_empresa, responsavel_contador."""
+    tot_pessoal, tot_geral, tot_impostos, tot_resultado, responsavel_empresa, cpf_empresa,
+    crc_contador, cpf_contador."""
     S = _styles()
     buf = io.BytesIO()
     pw, ph = A4
@@ -559,21 +560,45 @@ def gerar_dre(ctx, empresa=""):
         ("ROUNDEDCORNERS",[8,8,8,8]),
     ]))
     story.append(head)
-    story.append(Spacer(1, 0.35*cm))
+    story.append(Spacer(1, 0.4*cm))
 
     _resultado = ctx.get("tot_resultado", 0) or 0
     _margem = round(100 * _resultado / ctx["tot_receita"], 1) if ctx.get("tot_receita") else None
     _cor_resultado = GREEN if _resultado >= 0 else RED
 
-    story.append(_secao("1", "Indicadores do Período", S))
-    story.append(_kpi_row([
-        _kpi_card("Receita de Serviço", brl(ctx.get("tot_receita", 0)), TEAL, "nota emitida"),
-        _kpi_card("Despesa de Pessoal", brl(ctx.get("tot_pessoal", 0)), AMBER, "folha + encargos"),
-        _kpi_card("Outras Despesas", brl(ctx.get("tot_geral", 0)), GREY, "detalhado"),
-        _kpi_card("Impostos", brl(ctx.get("tot_impostos", 0)), RED, "detalhado"),
-        _kpi_card("Resultado", brl(_resultado), _cor_resultado,
-                  f"margem {_margem:.1f}%".replace(".", ",") if _margem is not None else ""),
-    ], sw))
+    # ── DEMONSTRAÇÃO DO RESULTADO — formato clássico de DRE, de cima para baixo ──
+    story.append(_secao("1", "Demonstração do Resultado", S))
+    _dre_rows = [
+        ["RECEITA BRUTA DE SERVIÇOS", brl(ctx.get("tot_receita", 0))],
+        ["(-) Despesa de Pessoal (folha + encargos)", f"({brl(ctx.get('tot_pessoal', 0), False)})"],
+        ["(-) Outras Despesas", f"({brl(ctx.get('tot_geral', 0), False)})"],
+        ["(-) Impostos", f"({brl(ctx.get('tot_impostos', 0), False)})"],
+        ["(=) RESULTADO DO PERÍODO", brl(_resultado)],
+    ]
+    _dre_t = Table(_dre_rows, colWidths=[sw*0.68, sw*0.32])
+    _dre_t.setStyle(TableStyle([
+        ("FONTNAME",(0,0),(-1,-1), F),
+        ("FONTNAME",(0,0),(-1,0), FB),
+        ("FONTNAME",(0,-1),(-1,-1), FB),
+        ("FONTSIZE",(0,0),(-1,0), 10.5),
+        ("FONTSIZE",(0,1),(-1,-2), 9.2),
+        ("FONTSIZE",(0,-1),(-1,-1), 12),
+        ("TEXTCOLOR",(0,0),(-1,0), INK),
+        ("TEXTCOLOR",(0,1),(-1,-2), colors.HexColor("#5a6472")),
+        ("TEXTCOLOR",(0,-1),(-1,-1), _cor_resultado),
+        ("ALIGN",(1,0),(1,-1),"RIGHT"),
+        ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
+        ("TOPPADDING",(0,0),(-1,0),8),("BOTTOMPADDING",(0,0),(-1,0),10),
+        ("TOPPADDING",(0,1),(-1,-2),3),("BOTTOMPADDING",(0,1),(-1,-2),3),
+        ("LINEBELOW",(0,0),(-1,0), 0.6, LINE),
+        ("LINEABOVE",(0,-1),(-1,-1), 1.1, INK),
+        ("TOPPADDING",(0,-1),(-1,-1),9),("BOTTOMPADDING",(0,-1),(-1,-1),9),
+    ]))
+    story.append(_dre_t)
+    if _margem is not None:
+        story.append(Paragraph(f"Margem do período: <b>{f'{_margem:.1f}'.replace('.', ',')}%</b>",
+                               ParagraphStyle("marg", fontName=F, fontSize=8.5, textColor=GREY,
+                                             alignment=TA_RIGHT, spaceBefore=2)))
 
     if _resultado < 0:
         story.append(Spacer(1, 0.25*cm))
@@ -620,12 +645,13 @@ def gerar_dre(ctx, empresa=""):
     # ── ASSINATURAS ────────────────────────────────────────────────────────────
     story.append(Spacer(1, 1.2*cm))
     _assin_style = ParagraphStyle("assin", fontName=F, fontSize=8.5, textColor=INK,
-                                  leading=12, alignment=TA_CENTER)
+                                  leading=13, alignment=TA_CENTER)
     _linha_assin = Table([[
-        Paragraph(f"_______________________________<br/>Responsável pela empresa<br/>"
-                 f"<b>{ctx.get('responsavel_empresa','')}</b>", _assin_style),
-        Paragraph(f"_______________________________<br/>Responsável pelo contador<br/>"
-                 f"<b>{ctx.get('responsavel_contador','')}</b>", _assin_style),
+        Paragraph(f"_______________________________<br/><b>{ctx.get('responsavel_empresa','') or '—'}</b>"
+                 f"<br/>CPF: {ctx.get('cpf_empresa','')}", _assin_style),
+        Paragraph(f"_______________________________<br/><b>Contador</b>"
+                 f"<br/>CRC: {ctx.get('crc_contador','')}   CPF: {ctx.get('cpf_contador','')}",
+                 _assin_style),
     ]], colWidths=[sw/2, sw/2])
     _linha_assin.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),
                                       ("LEFTPADDING",(0,0),(-1,-1),10),
