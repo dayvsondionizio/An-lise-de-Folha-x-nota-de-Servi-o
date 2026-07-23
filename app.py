@@ -1631,6 +1631,22 @@ def _dre_upsert_campo(emp_id, r, **campos):
     db.dre_upsert(emp_id, r["competencia"], _dados)
 
 
+def _dre_totais_itens(itens):
+    """Soma os itens lançados (descrição+valor+categoria) separando despesa de imposto.
+    Itens antigos sem 'categoria' contam como despesa (compatibilidade)."""
+    _desp = sum(i.get("valor") or 0 for i in itens if i.get("categoria") != "imposto")
+    _imp = sum(i.get("valor") or 0 for i in itens if i.get("categoria") == "imposto")
+    return _desp, _imp
+
+
+def _dre_resultado(r):
+    receita = r.get("receita_servico") or 0
+    pessoal = r.get("despesa_pessoal") or 0
+    geral = r.get("despesa_geral") or 0
+    impostos = r.get("impostos") or 0
+    return receita - pessoal - geral - impostos
+
+
 def _render_dre_gerencial(empresa, emp_id):
     st.caption("DRE gerencial simplificada da prestadora, por competência — para acompanhar se ela se "
               "sustenta com receita própria de serviço ou depende de repasses/transferências do "
@@ -1646,12 +1662,12 @@ def _render_dre_gerencial(empresa, emp_id):
         _tot_receita = sum(r.get("receita_servico") or 0 for r in registros)
         _tot_pessoal = sum(r.get("despesa_pessoal") or 0 for r in registros)
         _tot_geral = sum(r.get("despesa_geral") or 0 for r in registros)
-        _tot_resultado = _tot_receita - _tot_pessoal - _tot_geral
+        _tot_impostos = sum(r.get("impostos") or 0 for r in registros)
+        _tot_resultado = _tot_receita - _tot_pessoal - _tot_geral - _tot_impostos
         _margem_media = round(100 * _tot_resultado / _tot_receita, 1) if _tot_receita else None
 
         _ultimo = sorted(registros, key=lambda r: r["competencia"])[-1]
-        _ultimo_resultado = ((_ultimo.get("receita_servico") or 0) - (_ultimo.get("despesa_pessoal") or 0)
-                             - (_ultimo.get("despesa_geral") or 0))
+        _ultimo_resultado = _dre_resultado(_ultimo)
 
         if _ultimo_resultado < 0:
             st.markdown("<div style='background:#fff5f5;border:1px solid #fc8181;color:#c53030;"
@@ -1662,38 +1678,85 @@ def _render_dre_gerencial(empresa, emp_id):
                        "tomador (ver Checklist Operacional, seção 6 — Autonomia Financeira da "
                        "Prestadora).</div>", unsafe_allow_html=True)
 
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Receita acumulada", brl(_tot_receita))
         m2.metric("Despesas acumuladas", brl(_tot_pessoal + _tot_geral))
-        m3.metric("Resultado acumulado", brl(_tot_resultado))
-        m4.metric("Margem média", f"{_margem_media}%" if _margem_media is not None else "—")
+        m3.metric("Impostos acumulados", brl(_tot_impostos))
+        m4.metric("Resultado acumulado", brl(_tot_resultado))
+        m5.metric("Margem média", f"{_margem_media}%" if _margem_media is not None else "—")
         st.divider()
 
+    # ── NOVA COMPETÊNCIA — itens (despesa/imposto) lançados um a um antes de salvar ──
+    _reset_key = f"dre_reset_{emp_id}"
+    st.session_state.setdefault(_reset_key, 0)
+    _rk = st.session_state[_reset_key]
+    _item_reset_key = f"dre_item_reset_{emp_id}"
+    st.session_state.setdefault(_item_reset_key, 0)
+    _ik = st.session_state[_item_reset_key]
+    _draft_key = f"dre_draft_{emp_id}"
+    st.session_state.setdefault(_draft_key, [])
+    _draft = st.session_state[_draft_key]
+
     with st.expander("➕ Nova competência", expanded=not registros):
-        with st.form(f"form_dre_{emp_id}", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            mes_nome = c1.selectbox("Mês", _MES_NOMES, index=date.today().month - 1)
-            ano = c2.number_input("Ano", min_value=2015, max_value=2100, step=1,
-                                  value=date.today().year)
-            c3, c4 = st.columns(2)
-            receita = c3.number_input("Receita de serviço (nota emitida)", min_value=0.0,
-                                      step=100.0, format="%.2f")
-            desp_pessoal = c4.number_input("Despesa de pessoal (folha + encargos)", min_value=0.0,
-                                           step=100.0, format="%.2f")
-            obs = st.text_area("Observação", placeholder="Ex.: recebeu transferência da tomadora "
-                                                          "para cobrir caixa negativo")
-            st.caption("As demais despesas (aluguel, contador, energia...) são lançadas item a item "
-                      "depois de criar a competência, dentro do próprio card dela.")
-            if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
-                _mes_num = _MES_NOMES.index(mes_nome) + 1
-                _competencia = f"{int(ano):04d}-{_mes_num:02d}"
-                db.dre_upsert(emp_id, _competencia, {
-                    "receita_servico": receita, "despesa_pessoal": desp_pessoal,
-                    "despesa_geral": 0.0, "despesas_detalhadas": [], "observacao": obs.strip(),
+        c1, c2 = st.columns(2)
+        mes_nome = c1.selectbox("Mês", _MES_NOMES, index=date.today().month - 1,
+                                key=f"dre_mes_{emp_id}_{_rk}")
+        ano = c2.number_input("Ano", min_value=2015, max_value=2100, step=1,
+                              value=date.today().year, key=f"dre_ano_{emp_id}_{_rk}")
+        c3, c4 = st.columns(2)
+        receita = c3.number_input("Receita de serviço (nota emitida)", min_value=0.0,
+                                  step=100.0, format="%.2f", key=f"dre_receita_{emp_id}_{_rk}")
+        desp_pessoal = c4.number_input("Despesa de pessoal (folha + encargos)", min_value=0.0,
+                                       step=100.0, format="%.2f", key=f"dre_pessoal_{emp_id}_{_rk}")
+
+        st.markdown("**💸 Despesas e impostos (item a item)**")
+        if _draft:
+            for i, d in enumerate(_draft):
+                dc1, dc2 = st.columns([5, 1])
+                _tag = "🏷️ Imposto" if d.get("categoria") == "imposto" else "💸 Despesa"
+                dc1.write(f"{_tag} — {d.get('descricao') or '—'} — {brl(d.get('valor') or 0)}")
+                if dc2.button("🗑️", key=f"del_draft_{emp_id}_{i}"):
+                    st.session_state[_draft_key].pop(i)
+                    st.rerun()
+        else:
+            st.caption("Nenhum item adicionado ainda.")
+
+        ac1, ac2, ac3, ac4 = st.columns([3, 2, 2, 1])
+        _desc_draft = ac1.text_input("Descrição", key=f"dre_desc_draft_{emp_id}_{_ik}",
+                                     placeholder="Ex.: Aluguel, DAS, Contador...")
+        _valor_draft = ac2.number_input("Valor", min_value=0.0, step=50.0, format="%.2f",
+                                        key=f"dre_valor_draft_{emp_id}_{_ik}")
+        _tipo_draft = ac3.selectbox("Tipo", ["Despesa", "Imposto"], key=f"dre_tipo_draft_{emp_id}_{_ik}")
+        if ac4.button("➕", key=f"dre_add_draft_{emp_id}", use_container_width=True):
+            if _desc_draft.strip():
+                st.session_state[_draft_key].append({
+                    "descricao": _desc_draft.strip(), "valor": _valor_draft,
+                    "categoria": "imposto" if _tipo_draft == "Imposto" else "despesa",
                 })
-                st.session_state[dre_key] = db.dre_listar(emp_id)
-                st.success("Salvo!")
+                st.session_state[_item_reset_key] += 1
                 st.rerun()
+            else:
+                st.error("Informe a descrição do item.")
+
+        obs = st.text_area("Observação", key=f"dre_obs_{emp_id}_{_rk}",
+                           placeholder="Ex.: recebeu transferência da tomadora para cobrir caixa negativo")
+
+        if st.button("💾 Salvar competência", type="primary", use_container_width=True,
+                    key=f"dre_salvar_{emp_id}"):
+            _mes_num = _MES_NOMES.index(mes_nome) + 1
+            _competencia = f"{int(ano):04d}-{_mes_num:02d}"
+            _tot_desp, _tot_imp = _dre_totais_itens(_draft)
+            db.dre_upsert(emp_id, _competencia, {
+                "receita_servico": receita, "despesa_pessoal": desp_pessoal,
+                "despesa_geral": _tot_desp, "impostos": _tot_imp,
+                "despesas_detalhadas": list(_draft), "observacao": obs.strip(),
+            })
+            st.session_state[dre_key] = db.dre_listar(emp_id)
+            st.session_state[_draft_key] = []
+            st.session_state[_reset_key] += 1
+            st.session_state[_item_reset_key] += 1
+            st.success("Salvo!")
+            st.rerun()
 
     if not registros:
         st.info("Nenhuma competência lançada ainda.")
@@ -1703,47 +1766,53 @@ def _render_dre_gerencial(empresa, emp_id):
         receita = r.get("receita_servico") or 0
         pessoal = r.get("despesa_pessoal") or 0
         geral = r.get("despesa_geral") or 0
-        resultado = receita - pessoal - geral
+        impostos = r.get("impostos") or 0
+        resultado = _dre_resultado(r)
         margem = round(100 * resultado / receita, 1) if receita else None
         _cor = "#276749" if resultado >= 0 else "#c53030"
         _brl_md = lambda v: brl(v).replace("$", "&#36;")  # $ vira LaTeX no markdown, precisa escapar
         with st.expander(f"{fper(r['competencia'], full=True)} · Resultado: {brl(resultado)}"
                         f"{f' ({margem}%)' if margem is not None else ''}"):
             st.markdown(f"Receita: {_brl_md(receita)} · Despesa de pessoal: {_brl_md(pessoal)} · "
-                       f"Outras despesas: {_brl_md(geral)} · "
+                       f"Outras despesas: {_brl_md(geral)} · Impostos: {_brl_md(impostos)} · "
                        f"<span style='color:{_cor};font-weight:700'>Resultado: {_brl_md(resultado)}</span>",
                        unsafe_allow_html=True)
             if r.get("observacao"):
                 st.caption(f"📝 {r['observacao']}")
 
-            st.markdown("**💸 Outras despesas (detalhado)**")
-            _despesas = list(r.get("despesas_detalhadas") or [])
-            if _despesas:
-                for i, d in enumerate(_despesas):
-                    dc1, dc2 = st.columns([4, 1])
-                    dc1.write(f"{d.get('descricao') or '—'} — {brl(d.get('valor') or 0)}")
+            st.markdown("**💸 Despesas e impostos (detalhado)**")
+            _itens = list(r.get("despesas_detalhadas") or [])
+            if _itens:
+                for i, d in enumerate(_itens):
+                    dc1, dc2 = st.columns([5, 1])
+                    _tag = "🏷️ Imposto" if d.get("categoria") == "imposto" else "💸 Despesa"
+                    dc1.write(f"{_tag} — {d.get('descricao') or '—'} — {brl(d.get('valor') or 0)}")
                     if dc2.button("🗑️", key=f"del_desp_{r['id']}_{i}"):
-                        _novas = _despesas[:i] + _despesas[i+1:]
+                        _novas = _itens[:i] + _itens[i+1:]
+                        _nd, _ni = _dre_totais_itens(_novas)
                         _dre_upsert_campo(emp_id, r, despesas_detalhadas=_novas,
-                                          despesa_geral=sum(d.get("valor") or 0 for d in _novas))
+                                          despesa_geral=_nd, impostos=_ni)
                         st.session_state[dre_key] = db.dre_listar(emp_id)
                         st.rerun()
             else:
-                st.caption("Nenhuma despesa detalhada lançada ainda.")
+                st.caption("Nenhum item detalhado lançado ainda.")
 
             with st.form(f"form_add_desp_{r['id']}", clear_on_submit=True):
-                ec1, ec2 = st.columns([3, 2])
-                desc = ec1.text_input("Descrição", placeholder="Ex.: Aluguel, Contador, Energia...")
+                ec1, ec2, ec3 = st.columns([3, 2, 2])
+                desc = ec1.text_input("Descrição", placeholder="Ex.: Aluguel, DAS, Contador...")
                 valor = ec2.number_input("Valor", min_value=0.0, step=50.0, format="%.2f")
-                if st.form_submit_button("➕ Adicionar despesa", use_container_width=True):
+                tipo = ec3.selectbox("Tipo", ["Despesa", "Imposto"])
+                if st.form_submit_button("➕ Adicionar item", use_container_width=True):
                     if desc.strip():
-                        _novas = _despesas + [{"descricao": desc.strip(), "valor": valor}]
+                        _novas = _itens + [{"descricao": desc.strip(), "valor": valor,
+                                            "categoria": "imposto" if tipo == "Imposto" else "despesa"}]
+                        _nd, _ni = _dre_totais_itens(_novas)
                         _dre_upsert_campo(emp_id, r, despesas_detalhadas=_novas,
-                                          despesa_geral=sum(d.get("valor") or 0 for d in _novas))
+                                          despesa_geral=_nd, impostos=_ni)
                         st.session_state[dre_key] = db.dre_listar(emp_id)
                         st.rerun()
                     else:
-                        st.error("Informe a descrição da despesa.")
+                        st.error("Informe a descrição do item.")
 
             st.divider()
             if st.button("🗑️ Excluir esta competência inteira", key=f"del_dre_{r['id']}"):
@@ -1785,20 +1854,23 @@ def _render_dre_exportar_pdf(empresa, registros):
                 receita = r.get("receita_servico") or 0
                 pessoal = r.get("despesa_pessoal") or 0
                 geral = r.get("despesa_geral") or 0
-                resultado = receita - pessoal - geral
+                impostos = r.get("impostos") or 0
+                resultado = _dre_resultado(r)
                 _linhas.append({
                     "competencia": r["competencia"], "receita": receita, "despesa_pessoal": pessoal,
-                    "despesa_geral": geral, "resultado": resultado,
+                    "despesa_geral": geral, "impostos": impostos, "resultado": resultado,
                     "despesas_detalhadas": r.get("despesas_detalhadas") or [],
                 })
             _tot_receita = sum(l["receita"] for l in _linhas)
             _tot_pessoal = sum(l["despesa_pessoal"] for l in _linhas)
             _tot_geral = sum(l["despesa_geral"] for l in _linhas)
+            _tot_impostos = sum(l["impostos"] for l in _linhas)
             _periodo_label = _labels[_de] if _de == _ate else f"{_labels[_de]} a {_labels[_ate]}"
             _ctx = {
                 "cnpj": empresa.get("cnpj"), "periodo_label": _periodo_label, "linhas": _linhas,
                 "tot_receita": _tot_receita, "tot_pessoal": _tot_pessoal, "tot_geral": _tot_geral,
-                "tot_resultado": _tot_receita - _tot_pessoal - _tot_geral,
+                "tot_impostos": _tot_impostos,
+                "tot_resultado": _tot_receita - _tot_pessoal - _tot_geral - _tot_impostos,
                 "responsavel_empresa": resp_empresa.strip(), "responsavel_contador": resp_contador.strip(),
             }
             with st.spinner("Montando PDF..."):

@@ -515,10 +515,10 @@ def gerar(ctx, empresa=""):
 
 
 def gerar_dre(ctx, empresa=""):
-    """DRE gerencial simplificada — receita de serviço x despesas, por competência.
+    """DRE gerencial simplificada — receita de serviço x despesas x impostos, por competência.
     ctx: cnpj, periodo_label, linhas [{competencia, receita, despesa_pessoal, despesa_geral,
-    resultado, despesas_detalhadas}], tot_receita, tot_pessoal, tot_geral, tot_resultado,
-    responsavel_empresa, responsavel_contador."""
+    impostos, resultado, despesas_detalhadas [{descricao, valor, categoria}]}], tot_receita,
+    tot_pessoal, tot_geral, tot_impostos, tot_resultado, responsavel_empresa, responsavel_contador."""
     S = _styles()
     buf = io.BytesIO()
     pw, ph = A4
@@ -570,6 +570,7 @@ def gerar_dre(ctx, empresa=""):
         _kpi_card("Receita de Serviço", brl(ctx.get("tot_receita", 0)), TEAL, "nota emitida"),
         _kpi_card("Despesa de Pessoal", brl(ctx.get("tot_pessoal", 0)), AMBER, "folha + encargos"),
         _kpi_card("Outras Despesas", brl(ctx.get("tot_geral", 0)), GREY, "detalhado"),
+        _kpi_card("Impostos", brl(ctx.get("tot_impostos", 0)), RED, "detalhado"),
         _kpi_card("Resultado", brl(_resultado), _cor_resultado,
                   f"margem {_margem:.1f}%".replace(".", ",") if _margem is not None else ""),
     ], sw))
@@ -589,29 +590,32 @@ def gerar_dre(ctx, empresa=""):
 
     # ── 2. RESUMO POR COMPETÊNCIA ─────────────────────────────────────────────
     story.append(_secao("2", "Resumo por Competência", S))
-    data = [["Competência", "Receita", "Despesa Pessoal", "Outras Despesas", "Resultado"]]
+    data = [["Competência", "Receita", "Despesa Pessoal", "Outras Despesas", "Impostos", "Resultado"]]
     for l in linhas:
         data.append([fper(l["competencia"]), brl(l["receita"], False), brl(l["despesa_pessoal"], False),
-                     brl(l["despesa_geral"], False), brl(l["resultado"], False)])
+                     brl(l["despesa_geral"], False), brl(l.get("impostos", 0), False),
+                     brl(l["resultado"], False)])
     if len(linhas) > 1:
         data.append(["TOTAL", brl(ctx.get("tot_receita", 0), False), brl(ctx.get("tot_pessoal", 0), False),
-                     brl(ctx.get("tot_geral", 0), False), brl(_resultado, False)])
-    story.append(_table(data, [sw*0.20, sw*0.22, sw*0.22, sw*0.18, sw*0.18],
+                     brl(ctx.get("tot_geral", 0), False), brl(ctx.get("tot_impostos", 0), False),
+                     brl(_resultado, False)])
+    story.append(_table(data, [sw*0.17, sw*0.18, sw*0.19, sw*0.16, sw*0.15, sw*0.15],
                         total=(len(linhas) > 1), align_from=1))
 
-    # ── 3. DESPESAS DETALHADAS POR COMPETÊNCIA ────────────────────────────────
+    # ── 3. DESPESAS E IMPOSTOS DETALHADOS POR COMPETÊNCIA ─────────────────────
     _tem_detalhe = any(l.get("despesas_detalhadas") for l in linhas)
     if _tem_detalhe:
-        story.append(_secao("3", "Outras Despesas — Detalhamento", S))
+        story.append(_secao("3", "Despesas e Impostos — Detalhamento", S))
         for l in linhas:
             _dets = l.get("despesas_detalhadas") or []
             if not _dets:
                 continue
             story.append(Paragraph(fper(l["competencia"]), S["h3"]))
-            data = [["Descrição", "Valor"]]
+            data = [["Tipo", "Descrição", "Valor"]]
             for d in sorted(_dets, key=lambda x: -(x.get("valor") or 0)):
-                data.append([str(d.get("descricao") or "—")[:60], brl(d.get("valor") or 0)])
-            story.append(_table(data, [sw*0.7, sw*0.3], font=7.6, head=TEAL))
+                _tipo = "Imposto" if d.get("categoria") == "imposto" else "Despesa"
+                data.append([_tipo, str(d.get("descricao") or "—")[:55], brl(d.get("valor") or 0)])
+            story.append(_table(data, [sw*0.18, sw*0.57, sw*0.25], font=7.6, align_from=2, head=TEAL))
 
     # ── ASSINATURAS ────────────────────────────────────────────────────────────
     story.append(Spacer(1, 1.2*cm))

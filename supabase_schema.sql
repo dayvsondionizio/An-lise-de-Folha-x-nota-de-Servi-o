@@ -336,3 +336,12 @@ grant all on esocial_dashboard.triagem_clientes to anon, authenticated, service_
 -- ═══════════════════════════════════════════════════════════════════════════
 alter table esocial_dashboard.dre_gerencial
   add column if not exists despesas_detalhadas jsonb default '[]'::jsonb;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DRE Gerencial: nova linha de Impostos, separada de "outras despesas". Cada
+-- item de despesas_detalhadas ganha uma "categoria" ('despesa' ou 'imposto')
+-- — impostos é a soma dos itens dessa categoria (mesmo mecanismo já usado
+-- para despesa_geral, sem precisar de coluna jsonb nova).
+-- ═══════════════════════════════════════════════════════════════════════════
+alter table esocial_dashboard.dre_gerencial
+  add column if not exists impostos numeric default 0;
