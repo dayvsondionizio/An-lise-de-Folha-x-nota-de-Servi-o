@@ -1075,7 +1075,11 @@ def _render_triagem_clientes():
               "durante o mapeamento.")
     _triagem_key = "triagem_state"
     if _triagem_key not in st.session_state:
-        st.session_state[_triagem_key] = db.triagem_listar()
+        try:
+            st.session_state[_triagem_key] = db.triagem_listar()
+        except Exception as _e:
+            st.error(f"Erro ao carregar triagem: {type(_e).__name__}: {_e}")
+            st.session_state[_triagem_key] = []
     _triagem = st.session_state[_triagem_key]
 
     _status_opcoes = ["A pesquisar", "Confirmado tem 2ª empresa", "Não se aplica",
@@ -1128,7 +1132,11 @@ def _render_biblioteca_precedentes():
               "Cadastre aqui quando a pesquisa de um caso estiver concluída.")
     _prec_key = "precedentes_state"
     if _prec_key not in st.session_state:
-        st.session_state[_prec_key] = db.precedentes_listar()
+        try:
+            st.session_state[_prec_key] = db.precedentes_listar()
+        except Exception as _e:
+            st.error(f"Erro ao carregar precedentes: {type(_e).__name__}: {_e}")
+            st.session_state[_prec_key] = []
     _precedentes = st.session_state[_prec_key]
 
     with st.expander("➕ Adicionar precedente", expanded=not _precedentes):
